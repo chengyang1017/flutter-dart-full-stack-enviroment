@@ -12,7 +12,8 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   analyzer: ^8.4.1
-
+  re_editor: ^0.10.0
+  re_highlight: ^0.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -24,3 +25,5 @@ flutter:
     - assets/lessons/
     - assets/lessons/create_post/advanced_images/answers/
     - assets/lessons/create_post/advanced_images/answers/post_service.dart
+    - assets/lessons/shopping/product_home/answers/
+    - assets/lessons/shopping/cart/answers/

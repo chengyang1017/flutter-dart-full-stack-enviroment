@@ -16,50 +16,88 @@ class WidePlaygroundLayout extends StatelessWidget {
   final Widget toolbar;
 
   @override
-  Widget build(BuildContext context) => Column(
-        key: const ValueKey('wide-playground-layout'),
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        key: const ValueKey(
+          'wide-playground-layout',
+        ),
         children: [
           SizedBox(
-            height: 60,
+            height: 52,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Flutter UI Playground',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
               ),
-            ),
-          ),
-          toolbar,
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 6,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Column(
-                      children: [
-                        Expanded(
-                          child: CodeEditorPanel(controller: controller),
+              child: Row(
+                children: [
+                  Text(
+                    'Flutter UI Playground',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge,
+                  ),
+                  const Spacer(),
+                  const SizedBox(
+                    width: 260,
+                    child: TabBar(
+                      tabs: [
+                        Tab(
+                          icon: Icon(Icons.code),
+                          text: '程式碼',
                         ),
-                        ErrorPanel(
-                          controller: controller,
-                          maxHeight: constraints.maxHeight * .3,
+                        Tab(
+                          icon: Icon(
+                            Icons.phone_android,
+                          ),
+                          text: '預覽',
                         ),
                       ],
                     ),
                   ),
+                ],
+              ),
+            ),
+          ),
+
+          toolbar,
+
+          Expanded(
+            child: TabBarView(
+              children: [
+                // 程式碼頁面
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: CodeEditorPanel(
+                            controller: controller,
+                          ),
+                        ),
+
+                        // 錯誤區最多占整體高度的 20%
+                        ErrorPanel(
+                          controller: controller,
+                          maxHeight:
+                              constraints.maxHeight *
+                                  0.2,
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  flex: 4,
-                  child: PreviewPanel(controller: controller),
+
+                // 預覽頁面
+                PreviewPanel(
+                  controller: controller,
                 ),
               ],
             ),
           ),
         ],
-      );
+      ),
+    );
+  }
 }
