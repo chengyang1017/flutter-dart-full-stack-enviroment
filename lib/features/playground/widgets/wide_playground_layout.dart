@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/widgets/runner_console_panel.dart';
+import '../../workspace/widgets/workspace_editor_tabs.dart';
 import '../../workspace/widgets/workspace_file_explorer.dart';
 import '../controllers/playground_controller.dart';
 import 'code_editor_panel.dart';
@@ -10,10 +13,12 @@ class WidePlaygroundLayout extends StatelessWidget {
   const WidePlaygroundLayout({
     super.key,
     required this.controller,
+    required this.runner,
     required this.toolbar,
   });
 
   final PlaygroundController controller;
+  final FlutterRunnerController runner;
   final Widget toolbar;
 
   @override
@@ -66,6 +71,11 @@ class WidePlaygroundLayout extends StatelessWidget {
                         Expanded(
                           child: Column(
                             children: [
+                              WorkspaceEditorTabs(
+                                workspace: controller.workspace,
+                                onSelect: controller.selectWorkspaceFile,
+                                onClose: controller.closeWorkspaceFile,
+                              ),
                               Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.all(8),
@@ -74,7 +84,11 @@ class WidePlaygroundLayout extends StatelessWidget {
                               ),
                               ErrorPanel(
                                 controller: controller,
-                                maxHeight: constraints.maxHeight * 0.2,
+                                maxHeight: constraints.maxHeight * 0.14,
+                              ),
+                              SizedBox(
+                                height: constraints.maxHeight < 650 ? 125 : 165,
+                                child: RunnerConsolePanel(runner: runner),
                               ),
                             ],
                           ),
