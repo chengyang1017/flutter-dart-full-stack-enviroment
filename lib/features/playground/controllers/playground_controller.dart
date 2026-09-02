@@ -287,11 +287,10 @@ Container(
     final pathChanged = path != _loadedWorkspacePath;
     final contentChangedOutsideEditor = workspaceContent != textController.text;
 
-    // Normal typing already lives inside CodeLineEditingController. Rebuilding
-    // the whole screen here is what made keyboard input feel sticky. Only relay
-    // changes when another Workspace action actually changes what the editor
-    // must display (switch/reset/import/rename/delete).
+    // A debounced editor-content notification reaches here after typing pauses.
+    // Refresh the surrounding file tree/tab dirty markers once, not per key.
     if (!pathChanged && !contentChangedOutsideEditor) {
+      notifyListeners();
       return;
     }
 
