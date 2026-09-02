@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../workspace/widgets/workspace_file_explorer.dart';
 import '../controllers/playground_controller.dart';
 import 'code_editor_panel.dart';
 import 'error_panel.dart';
@@ -24,6 +25,7 @@ class CompactPlaygroundLayout extends StatelessWidget {
             tabs: [
               Tab(text: '代码', icon: Icon(Icons.code)),
               Tab(text: '预览', icon: Icon(Icons.phone_android)),
+              Tab(text: '文件', icon: Icon(Icons.folder_outlined)),
             ],
           ),
           Expanded(
@@ -31,6 +33,10 @@ class CompactPlaygroundLayout extends StatelessWidget {
               children: [
                 _EditorWithErrors(controller: controller),
                 PreviewPanel(controller: controller),
+                WorkspaceFileExplorer(
+                  workspace: controller.workspace,
+                  onOpenFile: controller.selectWorkspaceFile,
+                ),
               ],
             ),
           ),
@@ -67,7 +73,7 @@ class _TitleBar extends StatelessWidget {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Flutter UI Playground',
+              'Flutter Practice Workspace',
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
