@@ -289,6 +289,28 @@ class WorkspaceController extends ChangeNotifier {
     _movePath(path, target);
   }
 
+  void relocateEntry(String sourcePath, String targetPath) {
+    final entry = entryAt(sourcePath);
+    if (entry == null) {
+      throw ArgumentError('Workspace entry does not exist: $sourcePath');
+    }
+
+    final separator = targetPath.lastIndexOf('/');
+    final targetParent = separator == -1
+        ? ''
+        : targetPath.substring(0, separator);
+    if (targetParent.isNotEmpty) {
+      _assertDirectory(targetParent);
+    }
+
+    if (entry.isDirectory &&
+        (targetPath == sourcePath || targetPath.startsWith('$sourcePath/'))) {
+      throw ArgumentError('Cannot move a directory into itself.');
+    }
+
+    _movePath(sourcePath, targetPath);
+  }
+
   void resetFile(String path) {
     final current = entryAt(path);
     if (current == null || !current.isFile) return;
