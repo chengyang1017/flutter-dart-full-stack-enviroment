@@ -42,7 +42,7 @@ class WorkspaceController extends ChangeNotifier {
           id: 'file-pubspec',
           path: 'pubspec.yaml',
           type: WorkspaceEntryType.file,
-          content: '''name: flutter_practice\ndescription: Lightweight Flutter practice workspace.\npublish_to: none\n\nenvironment:\n  sdk: ^3.4.0\n\ndependencies:\n  flutter:\n    sdk: flutter\n\nflutter:\n  uses-material-design: true\n  assets:\n    - assets/\n''',
+          content: '''name: flutter_practice\ndescription: Lightweight Flutter practice workspace.\npublish_to: none\n\nenvironment:\n  sdk: ^3.4.0\n\ndependencies:\n  flutter:\n    sdk: flutter\n\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^5.0.0\n\nflutter:\n  uses-material-design: true\n  assets:\n    - assets/\n''',
         ),
         const WorkspaceEntry(
           id: 'file-analysis-options',
