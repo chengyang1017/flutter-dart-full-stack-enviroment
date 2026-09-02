@@ -37,6 +37,7 @@ class CodeEditorPanel extends StatelessWidget {
         color: const Color(0xff111318),
         child: CodeEditor(
           controller: controller.textController,
+          scrollController: controller.editorScrollController,
           wordWrap: false,
           autocompleteSymbols: true,
           chunkAnalyzer: NonCodeChunkAnalyzer(),

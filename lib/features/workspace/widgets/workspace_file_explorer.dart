@@ -82,7 +82,10 @@ class WorkspaceFileExplorer extends StatelessWidget {
             color: highlighted ? const Color(0xff202938) : null,
             child: ExpansionTile(
               key: PageStorageKey('workspace-${entry.id}'),
-              initiallyExpanded: depth == 0,
+              initiallyExpanded: workspace.isDirectoryExpanded(entry.path),
+              onExpansionChanged: (expanded) {
+                workspace.setDirectoryExpanded(entry.path, expanded);
+              },
               tilePadding: EdgeInsets.only(
                 left: 8.0 + depth * 12,
                 right: 2,
