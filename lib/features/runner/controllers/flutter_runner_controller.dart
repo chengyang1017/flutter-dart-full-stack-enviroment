@@ -49,11 +49,13 @@ class FlutterRunnerController extends ChangeNotifier {
 
     try {
       final currentSession = await _ensureSession();
+      _setStatus(RunnerStatus.syncing);
       await client.syncWorkspace(
         sessionId: currentSession.id,
         files: _workspaceFiles(),
         changes: workspace.changes,
       );
+      _setStatus(RunnerStatus.starting);
       await client.run(currentSession.id);
     } catch (error) {
       _fail('Run failed', error);
@@ -64,11 +66,13 @@ class FlutterRunnerController extends ChangeNotifier {
     if (!canHotReload || session == null) return;
 
     try {
+      _setStatus(RunnerStatus.syncing);
       await client.syncWorkspace(
         sessionId: session!.id,
         files: _workspaceFiles(),
         changes: workspace.changes,
       );
+      _setStatus(RunnerStatus.reloading);
       await client.hotReload(session!.id);
     } catch (error) {
       _fail('Hot reload failed', error);
@@ -79,11 +83,13 @@ class FlutterRunnerController extends ChangeNotifier {
     if (!canHotRestart || session == null) return;
 
     try {
+      _setStatus(RunnerStatus.syncing);
       await client.syncWorkspace(
         sessionId: session!.id,
         files: _workspaceFiles(),
         changes: workspace.changes,
       );
+      _setStatus(RunnerStatus.restarting);
       await client.hotRestart(session!.id);
     } catch (error) {
       _fail('Hot restart failed', error);
@@ -94,6 +100,7 @@ class FlutterRunnerController extends ChangeNotifier {
     if (!canStop || session == null) return;
 
     try {
+      _setStatus(RunnerStatus.stopping);
       await client.stop(session!.id);
     } catch (error) {
       _fail('Stop failed', error);
