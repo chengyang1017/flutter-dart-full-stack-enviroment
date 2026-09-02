@@ -186,7 +186,7 @@ class WorkspaceController extends ChangeNotifier {
     }
 
     if (activePath == path && _openFiles.isNotEmpty) {
-      final nextIndex = index.clamp(0, _openFiles.length - 1);
+      final nextIndex = index < _openFiles.length ? index : _openFiles.length - 1;
       activePath = _openFiles[nextIndex];
     }
     notifyListeners();
@@ -318,11 +318,23 @@ class WorkspaceController extends ChangeNotifier {
 
   void _movePath(String source, String target) {
     if (source == target) return;
-    _assertCreatablePath(target, ignorePrefix: source);
+    _validatePath(target);
 
     final affected = _entries.values
         .where((entry) => entry.path == source || entry.path.startsWith('$source/'))
         .toList();
+    final affectedIds = affected.map((entry) => entry.id).toSet();
+
+    for (final entry in affected) {
+      final suffix = entry.path.substring(source.length);
+      final nextPath = '$target$suffix';
+      final collision = _entries.values.any(
+        (candidate) => !affectedIds.contains(candidate.id) && candidate.path == nextPath,
+      );
+      if (collision) {
+        throw ArgumentError('Path already exists: $nextPath');
+      }
+    }
 
     for (final entry in affected) {
       final suffix = entry.path.substring(source.length);
@@ -354,22 +366,20 @@ class WorkspaceController extends ChangeNotifier {
     }
   }
 
-  void _assertCreatablePath(String path, {String? ignorePrefix}) {
+  void _assertCreatablePath(String path) {
+    _validatePath(path);
+    final collision = _entries.values.any((entry) => entry.path == path);
+    if (collision) throw ArgumentError('Path already exists: $path');
+  }
+
+  void _validatePath(String path) {
     if (path.isEmpty || path.startsWith('/') || path.contains('\\')) {
       throw ArgumentError('Workspace paths must be relative POSIX paths.');
     }
-    if (path.split('/').any((segment) => segment.isEmpty || segment == '..')) {
+    if (path.split('/').any((segment) =>
+        segment.isEmpty || segment == '.' || segment == '..')) {
       throw ArgumentError('Invalid workspace path: $path');
     }
-
-    final collision = _entries.values.any((entry) {
-      if (ignorePrefix != null &&
-          (entry.path == ignorePrefix || entry.path.startsWith('$ignorePrefix/'))) {
-        return false;
-      }
-      return entry.path == path;
-    });
-    if (collision) throw ArgumentError('Path already exists: $path');
   }
 
   String _newId() => 'workspace-${_nextId++}';
