@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
 import '../controllers/playground_controller.dart';
 import '../widgets/compact_playground_layout.dart';
@@ -15,6 +16,8 @@ class PlaygroundScreen extends StatefulWidget {
 }
 
 class _PlaygroundScreenState extends State<PlaygroundScreen> {
+  static const _runnerApiUrl = String.fromEnvironment('RUNNER_API_URL');
+
   late final PlaygroundController controller;
   late final FlutterRunnerController runner;
 
@@ -24,7 +27,9 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     controller = PlaygroundController()..addListener(_refresh);
     runner = FlutterRunnerController(
       workspace: controller.workspace,
-      client: MockFlutterRunnerClient(),
+      client: _runnerApiUrl.isEmpty
+          ? MockFlutterRunnerClient()
+          : HttpFlutterRunnerClient(baseUrl: _runnerApiUrl),
     )..addListener(_refresh);
   }
 
@@ -59,6 +64,12 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
                         controller: controller,
                         runner: runner,
                         compact: true,
+                        onRun: () async {
+                          await runner.run();
+                          if (tabContext.mounted) {
+                            DefaultTabController.of(tabContext).animateTo(1);
+                          }
+                        },
                         onQuickPreview: () {
                           controller.runCode();
                           DefaultTabController.of(tabContext).animateTo(1);
