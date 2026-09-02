@@ -209,6 +209,26 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     }
   }
 
+  Future<void> _keepProject() async {
+    final library = _projectLibrary;
+    if (library == null) return;
+    final project = library.activeProject;
+
+    try {
+      await library.keepProject(project.id);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已保留 ${project.name}，不会再作为临时练习处理。')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保留 Workspace 失败：$error')),
+      );
+    }
+  }
+
   Future<void> _deleteProject() async {
     final library = _projectLibrary;
     if (library == null || library.projects.length <= 1) return;
@@ -323,6 +343,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
           onImport: supportsWorkspaceImportPicker
               ? () => unawaited(_importExistingFlutterProject())
               : null,
+          onKeep: () => unawaited(_keepProject()),
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
