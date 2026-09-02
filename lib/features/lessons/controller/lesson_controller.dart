@@ -268,13 +268,15 @@ class LessonController extends ChangeNotifier {
   }
 
   List<String> get availableFiles {
-    final step = lesson.steps[currentStepIndex];
+    final files = <String>{};
 
-    if (step.relatedFiles.isNotEmpty) {
-      return step.relatedFiles;
+    for (final step in lesson.steps) {
+      files.add(step.currentFile);
+      files.addAll(step.relatedFiles);
+      files.addAll(step.standardAnswerAssets.keys);
     }
 
-    return step.standardAnswerAssets.keys.toList();
+    return files.toList(growable: false);
   }
 
   Future<void> switchFile(String file) async {

@@ -56,7 +56,10 @@ void main() {
     final wide = find.byKey(const ValueKey('wide-lesson-layout'));
     expect(wide, findsOneWidget);
     expect(find.descendant(of: wide, matching: find.byType(Row)), findsWidgets);
-    expect(find.byType(TabBar), findsNothing);
+    expect(
+      find.descendant(of: wide, matching: find.byType(TabBar)),
+      findsOneWidget,
+    );
   });
 
   test('进度可以保存和恢复', () async {

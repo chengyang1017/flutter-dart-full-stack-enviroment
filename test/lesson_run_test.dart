@@ -44,7 +44,7 @@ void main() {
           .value,
       '用户当前代码',
     );
-    expect(lesson.steps.first.standardAnswerAssets, isEmpty);
+    expect(controller.playground.code, "Text('用户当前代码')");
     controller.dispose();
   });
 
@@ -72,7 +72,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('代码'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, code);
+    final editor = find.descendant(
+      of: find.byType(LessonCodePanel),
+      matching: find.byType(EditableText),
+    );
+    expect(editor, findsOneWidget);
+    await tester.enterText(editor, code);
     final context = tester.element(
       find.byKey(const ValueKey('compact-lesson-layout')),
     );
