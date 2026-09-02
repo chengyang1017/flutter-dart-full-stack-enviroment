@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../export/services/workspace_export_download.dart';
 import '../../export/services/workspace_export_service.dart';
+import '../../export/services/workspace_import_picker.dart';
+import '../../export/services/workspace_import_service.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
 
@@ -39,6 +41,15 @@ class PlaygroundToolbar extends StatelessWidget {
                   onPressed: onRun ?? controller.runCode,
                   icon: const Icon(Icons.bolt),
                   label: const Text('快速预览'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: supportsWorkspaceImportPicker
+                      ? () => _importWorkspace(context)
+                      : null,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('导入'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -115,6 +126,56 @@ class PlaygroundToolbar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _importWorkspace(BuildContext context) async {
+    if (controller.workspace.isDirty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('导入新的练习包？'),
+          content: const Text(
+            '当前 Workspace 有未导出的修改。导入会先恢复默认模板，再应用练习包里的修改。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('继续导入'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+    }
+
+    try {
+      final bytes = await pickWorkspaceImport();
+      if (bytes == null || !context.mounted) return;
+
+      final manifest = const WorkspaceImportService().apply(
+        bytes,
+        controller.workspace,
+      );
+      controller.runCode();
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已导入 ${manifest.changes.length} 个 Workspace 修改。',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$error')),
+      );
+    }
   }
 
   Future<void> _exportWorkspace(BuildContext context) async {
