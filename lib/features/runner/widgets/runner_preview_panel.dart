@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../playground/controllers/playground_controller.dart';
 import '../../playground/widgets/preview_panel.dart';
 import '../controllers/flutter_runner_controller.dart';
+import '../models/run_session.dart';
 import 'runner_preview_host.dart';
 
 class RunnerPreviewPanel extends StatelessWidget {
@@ -18,7 +19,9 @@ class RunnerPreviewPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final previewUrl = runner.previewUrl;
-    final showRealPreview = !runner.isMock && previewUrl != null;
+    final showRealPreview = !runner.isMock &&
+        previewUrl != null &&
+        runner.status == RunnerStatus.running;
 
     return Column(
       children: [
@@ -40,7 +43,7 @@ class RunnerPreviewPanel extends StatelessWidget {
                   child: Text(
                     showRealPreview
                         ? '真实 Flutter SDK 预览 · ${runner.status.label}'
-                        : '真实 Runner · ${runner.status.label} · 尚未产生 Preview URL',
+                        : '真实 Runner · ${runner.status.label} · 等待 Preview 就绪',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
