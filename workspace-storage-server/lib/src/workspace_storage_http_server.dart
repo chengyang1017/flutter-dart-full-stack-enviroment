@@ -1,0 +1,246 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'workspace_authenticator.dart';
+import 'workspace_store.dart';
+
+class WorkspaceStorageHttpServer {
+  WorkspaceStorageHttpServer({
+    required this.store,
+    required this.authenticator,
+    this.allowedOrigin = '*',
+  });
+
+  final FileWorkspaceStore store;
+  final WorkspaceAuthenticator authenticator;
+  final String allowedOrigin;
+
+  Future<void> handle(HttpRequest request) async {
+    if (request.method == 'OPTIONS') {
+      await _sendEmpty(request.response, HttpStatus.noContent);
+      return;
+    }
+
+    try {
+      final segments = request.uri.pathSegments;
+      if (request.method == 'GET' &&
+          segments.length == 1 &&
+          segments.first == 'health') {
+        await _sendJson(
+          request.response,
+          HttpStatus.ok,
+          const <String, Object?>{'status': 'ok'},
+        );
+        return;
+      }
+
+      if (segments.isEmpty || segments.first != 'workspaces') {
+        await _sendError(
+          request.response,
+          HttpStatus.notFound,
+          'Route not found.',
+        );
+        return;
+      }
+
+      final userId = await authenticator.authenticate(request);
+      if (userId == null) {
+        await _sendError(
+          request.response,
+          HttpStatus.unauthorized,
+          'Authentication required.',
+        );
+        return;
+      }
+
+      if (segments.length == 1 && request.method == 'GET') {
+        await _sendJson(
+          request.response,
+          HttpStatus.ok,
+          await store.loadCatalog(userId),
+        );
+        return;
+      }
+
+      if (segments.length == 1 && request.method == 'POST') {
+        final body = await _readJsonObject(request);
+        final project = _readObject(body, 'project');
+        final snapshot = _readObject(body, 'snapshot');
+        final document = await store.createWorkspace(
+          userId: userId,
+          project: project,
+          snapshot: snapshot,
+        );
+        await _sendJson(request.response, HttpStatus.created, document);
+        return;
+      }
+
+      if (segments.length != 2) {
+        await _sendError(
+          request.response,
+          HttpStatus.notFound,
+          'Route not found.',
+        );
+        return;
+      }
+
+      final workspaceId = segments[1];
+      if (workspaceId.isEmpty) {
+        throw const FormatException('Workspace id is required.');
+      }
+
+      if (request.method == 'GET') {
+        final document = await store.loadWorkspace(userId, workspaceId);
+        if (document == null) {
+          await _sendError(
+            request.response,
+            HttpStatus.notFound,
+            'Workspace not found.',
+          );
+          return;
+        }
+        await _sendJson(request.response, HttpStatus.ok, document);
+        return;
+      }
+
+      if (request.method == 'PUT') {
+        final body = await _readJsonObject(request);
+        final document = await store.saveWorkspace(
+          userId: userId,
+          workspaceId: workspaceId,
+          project: _readObject(body, 'project'),
+          snapshot: _readObject(body, 'snapshot'),
+          expectedRevision: _readRevision(body),
+        );
+        await _sendJson(request.response, HttpStatus.ok, document);
+        return;
+      }
+
+      if (request.method == 'DELETE') {
+        final body = await _readJsonObject(request);
+        final catalog = await store.deleteWorkspace(
+          userId: userId,
+          workspaceId: workspaceId,
+          expectedRevision: _readRevision(body),
+        );
+        await _sendJson(request.response, HttpStatus.ok, catalog);
+        return;
+      }
+
+      await _sendError(
+        request.response,
+        HttpStatus.notFound,
+        'Route not found.',
+      );
+    } on WorkspaceRevisionMismatch catch (error) {
+      await _sendJson(
+        request.response,
+        HttpStatus.conflict,
+        <String, Object?>{
+          'code': 'revision_conflict',
+          'workspaceId': error.workspaceId,
+          'expectedRevision': error.expectedRevision,
+          'actualRevision': error.actualRevision,
+        },
+      );
+    } on WorkspaceDocumentNotFound catch (error) {
+      await _sendError(
+        request.response,
+        HttpStatus.notFound,
+        error.toString(),
+      );
+    } on FormatException catch (error) {
+      await _sendError(
+        request.response,
+        HttpStatus.badRequest,
+        error.toString(),
+      );
+    } on StateError catch (error) {
+      await _sendError(
+        request.response,
+        HttpStatus.conflict,
+        error.toString(),
+      );
+    } catch (error, stackTrace) {
+      stderr.writeln('Workspace storage request failed: $error');
+      stderr.writeln(stackTrace);
+      await _sendError(
+        request.response,
+        HttpStatus.internalServerError,
+        'Internal server error.',
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _readJsonObject(HttpRequest request) async {
+    final source = await utf8.decoder.bind(request).join();
+    if (source.trim().isEmpty) return <String, dynamic>{};
+    final decoded = jsonDecode(source);
+    if (decoded is! Map) {
+      throw const FormatException('Request body must be a JSON object.');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  Map<String, dynamic> _readObject(
+    Map<String, dynamic> body,
+    String key,
+  ) {
+    final value = body[key];
+    if (value is! Map) {
+      throw FormatException('$key must be a JSON object.');
+    }
+    return Map<String, dynamic>.from(value);
+  }
+
+  String _readRevision(Map<String, dynamic> body) {
+    final value = body['expectedRevision'];
+    if (value is! String || value.isEmpty) {
+      throw const FormatException('expectedRevision is required.');
+    }
+    return value;
+  }
+
+  Future<void> _sendError(
+    HttpResponse response,
+    int statusCode,
+    String message,
+  ) {
+    return _sendJson(
+      response,
+      statusCode,
+      <String, Object?>{'error': message},
+    );
+  }
+
+  Future<void> _sendJson(
+    HttpResponse response,
+    int statusCode,
+    Map<String, Object?> body,
+  ) async {
+    _setCors(response);
+    response.statusCode = statusCode;
+    response.headers.contentType = ContentType.json;
+    response.write(jsonEncode(body));
+    await response.close();
+  }
+
+  Future<void> _sendEmpty(HttpResponse response, int statusCode) async {
+    _setCors(response);
+    response.statusCode = statusCode;
+    await response.close();
+  }
+
+  void _setCors(HttpResponse response) {
+    response.headers.set('access-control-allow-origin', allowedOrigin);
+    response.headers.set(
+      'access-control-allow-methods',
+      'GET, POST, PUT, DELETE, OPTIONS',
+    );
+    response.headers.set(
+      'access-control-allow-headers',
+      'authorization, content-type, accept',
+    );
+    response.headers.set('cache-control', 'no-store');
+  }
+}

@@ -11,6 +11,8 @@ Pub/
 .flutter
 .flutter_tool_state
 Dart/
+.workspace-storage/
+workspace-storage-server/.workspace-storage/
 
 # Flutter/Dart generated files
 .dart_tool/
