@@ -18,6 +18,8 @@ Future<void> main() async {
       20;
   final previewUrlTemplate =
       environment['RUNNER_PREVIEW_URL_TEMPLATE'] ?? 'http://localhost:{port}';
+  final backendUrlTemplate =
+      environment['RUNNER_BACKEND_URL_TEMPLATE'] ?? 'http://localhost:{port}';
   final workspaceRoot = Directory(
     environment['RUNNER_WORKSPACE_ROOT'] ??
         '${Directory.systemTemp.path}${Platform.pathSeparator}flutter-practice-runner',
@@ -28,6 +30,7 @@ Future<void> main() async {
     rootDirectory: workspaceRoot,
     executionBackend: executionBackend,
     previewUrlTemplate: previewUrlTemplate,
+    backendUrlTemplate: backendUrlTemplate,
   );
   final runnerServer = RunnerServer(
     manager: manager,
@@ -91,6 +94,9 @@ RunnerExecutionBackend _createExecutionBackend(
     case 'local':
       return LocalExecutionBackend(
         flutterExecutable: environment['FLUTTER_EXECUTABLE'] ?? 'flutter',
+        dartExecutable: environment['DART_EXECUTABLE'] ?? 'dart',
+        dartFrogExecutable:
+            environment['DART_FROG_EXECUTABLE'] ?? 'dart_frog',
       );
     case 'docker':
       return DockerExecutionBackend(
@@ -99,6 +105,10 @@ RunnerExecutionBackend _createExecutionBackend(
             'flutter-practice-runner:local',
         flutterExecutable:
             environment['RUNNER_CONTAINER_FLUTTER_EXECUTABLE'] ?? 'flutter',
+        dartExecutable:
+            environment['RUNNER_CONTAINER_DART_EXECUTABLE'] ?? 'dart',
+        dartFrogExecutable:
+            environment['RUNNER_CONTAINER_DART_FROG_EXECUTABLE'] ?? 'dart_frog',
         memoryLimit: environment['RUNNER_DOCKER_MEMORY'] ?? '1024m',
         cpuLimit: environment['RUNNER_DOCKER_CPUS'] ?? '1.0',
         pidsLimit: int.tryParse(

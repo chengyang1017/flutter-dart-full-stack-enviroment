@@ -10,23 +10,31 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     this.dockerExecutable = 'docker',
     this.image = 'flutter-practice-runner:local',
     this.flutterExecutable = 'flutter',
+    this.dartExecutable = 'dart',
+    this.dartFrogExecutable = 'dart_frog',
     this.memoryLimit = '1024m',
     this.cpuLimit = '1.0',
     this.pidsLimit = 256,
     this.network,
     this.runnerOwnership = '10001:10001',
     this.containerWebPort = 8080,
+    this.containerBackendPort = 8081,
+    this.containerBackendVmServicePort = 8181,
   });
 
   final String dockerExecutable;
   final String image;
   final String flutterExecutable;
+  final String dartExecutable;
+  final String dartFrogExecutable;
   final String memoryLimit;
   final String cpuLimit;
   final int pidsLimit;
   final String? network;
   final String runnerOwnership;
   final int containerWebPort;
+  final int containerBackendPort;
+  final int containerBackendVmServicePort;
 
   @override
   String get name => 'docker';
@@ -38,6 +46,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     }
 
     final previewPort = await _reservePort();
+    final backendPort = await _reservePort();
     final containerName = _containerName(session.id);
     final arguments = <String>[
       'run',
@@ -50,6 +59,8 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       'flutter-practice-session=${session.id}',
       '--publish',
       '127.0.0.1:$previewPort:$containerWebPort',
+      '--publish',
+      '127.0.0.1:$backendPort:$containerBackendPort',
       '--memory',
       memoryLimit,
       '--cpus',
@@ -60,7 +71,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       'ALL',
       // docker cp creates files as root. CHOWN is the only capability kept so
       // the trusted runner server can hand copied files back to the non-root
-      // runtime user. User Flutter code still runs as that non-root user.
+      // runtime user. User Flutter/Dart code still runs as that non-root user.
       '--cap-add',
       'CHOWN',
       '--security-opt',
@@ -102,6 +113,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
 
     session.runtimeId = containerName;
     session.runtimePreviewPort = previewPort;
+    session.runtimeBackendPort = backendPort;
     session.addLog('[runner] Docker runtime is ready.');
   }
 
@@ -121,6 +133,29 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
         flutterExecutable,
         ...arguments,
       ],
+    );
+  }
+
+  @override
+  Future<int> runDartCommand(
+    RunnerSession session,
+    List<String> arguments, {
+    String workingDirectory = 'backend',
+  }) async {
+    final container = _requireContainer(session);
+    final containerWorkdir = _containerWorkingDirectory(workingDirectory);
+    return _runLoggedProcess(
+      session,
+      [
+        'exec',
+        '--workdir',
+        containerWorkdir,
+        container,
+        dartExecutable,
+        ...arguments,
+      ],
+      logPrefix: '[backend] ',
+      stderrPrefix: '[backend stderr] ',
     );
   }
 
@@ -149,8 +184,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       );
     }
 
-    final source =
-        '${session.directory.path}${Platform.pathSeparator}.';
+    final source = '${session.directory.path}${Platform.pathSeparator}.';
     final copyResult = await _runDocker([
       'cp',
       source,
@@ -181,13 +215,24 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
 
   @override
   Future<RunnerProcessLaunch> startFlutterWeb(
-    RunnerSession session,
-  ) async {
+    RunnerSession session, {
+    Map<String, String> dartDefines = const <String, String>{},
+  }) async {
     final container = _requireContainer(session);
     final previewPort = session.runtimePreviewPort;
     if (previewPort == null) {
       throw StateError('Docker preview port is not available.');
     }
+
+    final flutterArguments = <String>[
+      'run',
+      '-d',
+      'web-server',
+      '--web-hostname=0.0.0.0',
+      '--web-port=$containerWebPort',
+      for (final entry in dartDefines.entries)
+        '--dart-define=${entry.key}=${entry.value}',
+    ];
 
     final process = await Process.start(
       dockerExecutable,
@@ -198,11 +243,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
         '/workspace',
         container,
         flutterExecutable,
-        'run',
-        '-d',
-        'web-server',
-        '--web-hostname=0.0.0.0',
-        '--web-port=$containerWebPort',
+        ...flutterArguments,
       ],
       runInShell: false,
     );
@@ -211,9 +252,51 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       process: process,
       previewPort: previewPort,
       description:
-          'docker exec $container flutter run -d web-server '
-          '--web-hostname=0.0.0.0 --web-port=$containerWebPort '
+          'docker exec $container flutter ${flutterArguments.join(' ')} '
           '(host port $previewPort)',
+    );
+  }
+
+  @override
+  Future<RunnerProcessLaunch> startDartFrog(
+    RunnerSession session,
+  ) async {
+    final container = _requireContainer(session);
+    final backendPort = session.runtimeBackendPort;
+    if (backendPort == null) {
+      throw StateError('Docker backend port is not available.');
+    }
+
+    final arguments = <String>[
+      'dev',
+      '--host',
+      '0.0.0.0',
+      '--port',
+      '$containerBackendPort',
+      '--dart-vm-service-port',
+      '$containerBackendVmServicePort',
+    ];
+
+    final process = await Process.start(
+      dockerExecutable,
+      [
+        'exec',
+        '--interactive',
+        '--workdir',
+        '/workspace/backend',
+        container,
+        dartFrogExecutable,
+        ...arguments,
+      ],
+      runInShell: false,
+    );
+
+    return RunnerProcessLaunch(
+      process: process,
+      previewPort: backendPort,
+      description:
+          'docker exec $container dart_frog ${arguments.join(' ')} '
+          '(host port $backendPort)',
     );
   }
 
@@ -229,7 +312,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     }
 
     session.addLog(
-      '[runner] Restarting Docker runtime to terminate stuck Flutter processes.',
+      '[runner] Restarting Docker runtime to terminate active processes.',
     );
     final result = await _runDocker([
       'restart',
@@ -271,12 +354,15 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
 
     session.runtimeId = null;
     session.runtimePreviewPort = null;
+    session.runtimeBackendPort = null;
   }
 
   Future<int> _runLoggedProcess(
     RunnerSession session,
-    List<String> dockerArguments,
-  ) async {
+    List<String> dockerArguments, {
+    String logPrefix = '',
+    String stderrPrefix = '[stderr] ',
+  }) async {
     final process = await Process.start(
       dockerExecutable,
       dockerArguments,
@@ -286,11 +372,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     final stdoutDone = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .forEach(session.addLog);
+        .forEach((line) => session.addLog('$logPrefix$line'));
     final stderrDone = process.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .forEach((line) => session.addLog('[stderr] $line'));
+        .forEach((line) => session.addLog('$stderrPrefix$line'));
     final exitCode = await process.exitCode;
     await Future.wait([stdoutDone, stderrDone]);
     return exitCode;
@@ -352,6 +438,13 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       throw StateError('Docker runtime has not been prepared.');
     }
     return container;
+  }
+
+  String _containerWorkingDirectory(String relativePath) {
+    if (relativePath.isEmpty || relativePath == '.') {
+      return '/workspace';
+    }
+    return '/workspace/$relativePath';
   }
 
   String _containerName(String sessionId) {
