@@ -2,23 +2,25 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'execution/execution_backend.dart';
 import 'runner_session.dart';
 
 class SessionManager {
   SessionManager({
     required this.rootDirectory,
-    required this.flutterExecutable,
+    required this.executionBackend,
     required this.previewUrlTemplate,
   });
 
   final Directory rootDirectory;
-  final String flutterExecutable;
+  final RunnerExecutionBackend executionBackend;
   final String previewUrlTemplate;
 
   final Map<String, RunnerSession> _sessions = <String, RunnerSession>{};
   int _nextSession = 1;
 
   Iterable<RunnerSession> get sessions => _sessions.values;
+  String get executionBackendName => executionBackend.name;
 
   RunnerSession requireSession(String id) {
     final session = _sessions[id];
@@ -46,10 +48,14 @@ class SessionManager {
     _sessions[id] = session;
 
     try {
+      session.addLog(
+        '[runner] Preparing ${executionBackend.name} execution backend...',
+      );
+      await executionBackend.prepareSession(session);
+
       session.addLog('[runner] Creating web-capable Flutter project...');
-      final createExit = await _runCommand(
+      final createExit = await executionBackend.runFlutterCommand(
         session,
-        flutterExecutable,
         const [
           'create',
           '--no-pub',
@@ -80,39 +86,54 @@ class SessionManager {
     final previousStatus = session.status;
     session.setStatus('syncing');
 
+    // Validate the complete incoming set before mutating host/container state.
+    for (final path in files.keys) {
+      _validateRelativePath(path);
+    }
+
     final incoming = files.keys.toSet();
     final removed = session.managedFiles.difference(incoming);
 
-    for (final path in removed) {
-      final file = File(_absolutePath(session, path));
-      if (await file.exists()) {
-        await file.delete();
+    try {
+      for (final path in removed) {
+        final file = File(_absolutePath(session, path));
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
+
+      for (final entry in files.entries) {
+        final file = File(_absolutePath(session, entry.key));
+        await file.parent.create(recursive: true);
+        await file.writeAsString(entry.value, flush: true);
+      }
+
+      await executionBackend.syncWorkspace(
+        session,
+        removedPaths: removed,
+      );
+
+      session.managedFiles
+        ..clear()
+        ..addAll(incoming);
+
+      if (previousStatus == 'running' ||
+          previousStatus == 'reloading' ||
+          previousStatus == 'restarting') {
+        session.setStatus('running');
+      } else if (previousStatus == 'stopped') {
+        session.setStatus('stopped');
+      } else {
+        session.setStatus('ready');
+      }
+
+      session.addLog(
+        '[runner] Synced ${files.length} workspace files.',
+      );
+    } catch (_) {
+      session.setStatus('error');
+      rethrow;
     }
-
-    for (final entry in files.entries) {
-      final file = File(_absolutePath(session, entry.key));
-      await file.parent.create(recursive: true);
-      await file.writeAsString(entry.value, flush: true);
-    }
-
-    session.managedFiles
-      ..clear()
-      ..addAll(incoming);
-
-    if (previousStatus == 'running' ||
-        previousStatus == 'reloading' ||
-        previousStatus == 'restarting') {
-      session.setStatus('running');
-    } else if (previousStatus == 'stopped') {
-      session.setStatus('stopped');
-    } else {
-      session.setStatus('ready');
-    }
-
-    session.addLog(
-      '[runner] Synced ${files.length} workspace files.',
-    );
   }
 
   Future<void> run(RunnerSession session) async {
@@ -124,9 +145,8 @@ class SessionManager {
     session.setStatus('starting');
     session.addLog('[runner] flutter pub get');
 
-    final pubExit = await _runCommand(
+    final pubExit = await executionBackend.runFlutterCommand(
       session,
-      flutterExecutable,
       const ['pub', 'get'],
     );
     if (pubExit != 0) {
@@ -134,28 +154,21 @@ class SessionManager {
       throw StateError('flutter pub get exited with code $pubExit');
     }
 
-    final port = await _reservePort();
-    session.previewUrl = previewUrlTemplate.replaceAll('{port}', '$port');
-    session.addLog(
-      '[runner] flutter run -d web-server --web-hostname=0.0.0.0 --web-port=$port',
-    );
+    try {
+      final launch = await executionBackend.startFlutterWeb(session);
+      session.previewUrl = previewUrlTemplate.replaceAll(
+        '{port}',
+        '${launch.previewPort}',
+      );
+      session.addLog('[runner] ${launch.description}');
+      session.process = launch.process;
 
-    final process = await Process.start(
-      flutterExecutable,
-      [
-        'run',
-        '-d',
-        'web-server',
-        '--web-hostname=0.0.0.0',
-        '--web-port=$port',
-      ],
-      workingDirectory: session.directory.path,
-      runInShell: true,
-    );
-    session.process = process;
-
-    _listenToFlutterOutput(session, process);
-    unawaited(_watchProcessExit(session, process));
+      _listenToFlutterOutput(session, launch.process);
+      unawaited(_watchProcessExit(session, launch.process));
+    } catch (_) {
+      session.setStatus('error');
+      rethrow;
+    }
   }
 
   Future<void> hotReload(RunnerSession session) async {
@@ -206,12 +219,14 @@ class SessionManager {
       await process.stdin.flush();
       await process.exitCode.timeout(const Duration(seconds: 5));
     } on TimeoutException {
-      session.addLog('[runner] Graceful stop timed out; killing process.');
-      process.kill(ProcessSignal.sigterm);
+      session.addLog(
+        '[runner] Graceful stop timed out; forcing runtime stop.',
+      );
+      await executionBackend.forceStop(session, process);
       try {
-        await process.exitCode.timeout(const Duration(seconds: 2));
+        await process.exitCode.timeout(const Duration(seconds: 3));
       } on TimeoutException {
-        process.kill(ProcessSignal.sigkill);
+        process.kill();
       }
     }
 
@@ -228,8 +243,16 @@ class SessionManager {
 
     try {
       await stop(session);
-    } catch (_) {
-      session.process?.kill(ProcessSignal.sigkill);
+    } catch (error) {
+      session.addLog('[runner] Stop during cleanup failed: $error');
+      session.process?.kill();
+      session.process = null;
+    }
+
+    try {
+      await executionBackend.disposeSession(session);
+    } catch (error) {
+      session.addLog('[runner] Runtime cleanup failed: $error');
     }
 
     if (await session.directory.exists()) {
@@ -254,31 +277,6 @@ class SessionManager {
     for (final id in _sessions.keys.toList()) {
       await disposeSession(id);
     }
-  }
-
-  Future<int> _runCommand(
-    RunnerSession session,
-    String executable,
-    List<String> arguments,
-  ) async {
-    final process = await Process.start(
-      executable,
-      arguments,
-      workingDirectory: session.directory.path,
-      runInShell: true,
-    );
-
-    final stdoutDone = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .forEach(session.addLog);
-    final stderrDone = process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .forEach((line) => session.addLog('[stderr] $line'));
-    final exitCode = await process.exitCode;
-    await Future.wait([stdoutDone, stderrDone]);
-    return exitCode;
   }
 
   void _listenToFlutterOutput(
@@ -323,13 +321,6 @@ class SessionManager {
     } else {
       session.setStatus('error');
     }
-  }
-
-  Future<int> _reservePort() async {
-    final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final port = socket.port;
-    await socket.close();
-    return port;
   }
 
   String _absolutePath(RunnerSession session, String relativePath) {
