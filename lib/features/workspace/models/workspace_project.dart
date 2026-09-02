@@ -3,6 +3,11 @@ enum WorkspaceProjectKind {
   importedFlutter,
 }
 
+enum WorkspaceLifecycle {
+  temporary,
+  saved,
+}
+
 class WorkspaceProject {
   const WorkspaceProject({
     required this.id,
@@ -11,17 +16,20 @@ class WorkspaceProject {
     required this.kind,
     required this.createdAt,
     required this.updatedAt,
+    this.lifecycle = WorkspaceLifecycle.saved,
   });
 
   final String id;
   final String name;
   final String storageKey;
   final WorkspaceProjectKind kind;
+  final WorkspaceLifecycle lifecycle;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   WorkspaceProject copyWith({
     String? name,
+    WorkspaceLifecycle? lifecycle,
     DateTime? updatedAt,
   }) {
     return WorkspaceProject(
@@ -29,6 +37,7 @@ class WorkspaceProject {
       name: name ?? this.name,
       storageKey: storageKey,
       kind: kind,
+      lifecycle: lifecycle ?? this.lifecycle,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -39,6 +48,7 @@ class WorkspaceProject {
         'name': name,
         'storageKey': storageKey,
         'kind': kind.name,
+        'lifecycle': lifecycle.name,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'updatedAt': updatedAt.toUtc().toIso8601String(),
       };
@@ -59,6 +69,12 @@ class WorkspaceProject {
       orElse: () => WorkspaceProjectKind.practice,
     );
 
+    final lifecycleName = json['lifecycle'];
+    final lifecycle = WorkspaceLifecycle.values.firstWhere(
+      (value) => value.name == lifecycleName,
+      orElse: () => WorkspaceLifecycle.saved,
+    );
+
     DateTime readDate(dynamic value) => value is String
         ? DateTime.tryParse(value)?.toUtc() ?? DateTime.now().toUtc()
         : DateTime.now().toUtc();
@@ -68,6 +84,7 @@ class WorkspaceProject {
       name: name,
       storageKey: storageKey,
       kind: kind,
+      lifecycle: lifecycle,
       createdAt: readDate(json['createdAt']),
       updatedAt: readDate(json['updatedAt']),
     );

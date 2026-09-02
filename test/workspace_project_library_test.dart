@@ -10,6 +10,15 @@ import 'package:flutter_ui_playground/features/workspace/services/workspace_snap
 import 'package:flutter_ui_playground/features/workspace/widgets/workspace_project_bar.dart';
 
 void main() {
+  test('default workspace stays saved for migration stability', () {
+    final library = WorkspaceProjectLibrary(
+      catalogStore: _MemoryWorkspaceProjectCatalogStore(),
+      snapshotStore: _MemoryWorkspaceSnapshotStore(),
+    );
+
+    expect(library.activeProject.lifecycle, WorkspaceLifecycle.saved);
+  });
+
   test('local library reuses the legacy default-playground snapshot', () async {
     final snapshots = _MemoryWorkspaceSnapshotStore();
     final legacy = PlaygroundController(workspaceStore: snapshots);
@@ -32,6 +41,7 @@ void main() {
       library.activeProject.storageKey,
       PlaygroundController.workspaceStorageKey,
     );
+    expect(library.activeProject.lifecycle, WorkspaceLifecycle.saved);
 
     final restored = PlaygroundController(
       workspaceStore: KeyedWorkspaceSnapshotStore(
@@ -46,6 +56,63 @@ void main() {
     );
     await restored.flushWorkspacePersistence();
     restored.dispose();
+  });
+
+  test('legacy project metadata without lifecycle is kept as saved', () {
+    final project = WorkspaceProject.fromJson(<String, dynamic>{
+      'id': 'legacy',
+      'name': 'Legacy Workspace',
+      'storageKey': 'workspace:legacy',
+      'kind': 'practice',
+      'createdAt': DateTime.utc(2026, 9, 1).toIso8601String(),
+      'updatedAt': DateTime.utc(2026, 9, 1).toIso8601String(),
+    });
+
+    expect(project.lifecycle, WorkspaceLifecycle.saved);
+  });
+
+  test('new practices are temporary and Keep persists saved lifecycle', () async {
+    final catalog = _MemoryWorkspaceProjectCatalogStore();
+    final snapshots = _MemoryWorkspaceSnapshotStore();
+    final library = WorkspaceProjectLibrary(
+      catalogStore: catalog,
+      snapshotStore: snapshots,
+    );
+
+    final practice = await library.createPractice('Quick BLoC Practice');
+    expect(practice.lifecycle, WorkspaceLifecycle.temporary);
+
+    await library.keepProject(practice.id);
+    expect(
+      library.projectById(practice.id)?.lifecycle,
+      WorkspaceLifecycle.saved,
+    );
+
+    final reopened = WorkspaceProjectLibrary(
+      catalogStore: catalog,
+      snapshotStore: snapshots,
+    );
+    expect(
+      reopened.projectById(practice.id)?.lifecycle,
+      WorkspaceLifecycle.saved,
+    );
+  });
+
+  test('imported Flutter workspaces are saved by default', () async {
+    final library = WorkspaceProjectLibrary(
+      catalogStore: _MemoryWorkspaceProjectCatalogStore(),
+      snapshotStore: _MemoryWorkspaceSnapshotStore(),
+    );
+    final seed = PlaygroundController();
+    final snapshot = seed.workspace.createSnapshot();
+    seed.dispose();
+
+    final imported = await library.createImportedFlutter(
+      name: 'Existing App',
+      snapshot: snapshot,
+    );
+
+    expect(imported.lifecycle, WorkspaceLifecycle.saved);
   });
 
   test('projects persist and the last selected project is restored', () async {
@@ -130,7 +197,9 @@ void main() {
     expect(snapshots.load('workspace:deleted'), isNull);
   });
 
-  testWidgets('project bar fits a narrow phone width', (tester) async {
+  testWidgets('project bar fits a narrow phone width with Keep action', (
+    tester,
+  ) async {
     final now = DateTime.utc(2026, 9, 2);
     final projects = <WorkspaceProject>[
       WorkspaceProject(
@@ -138,6 +207,7 @@ void main() {
         name: 'Flutter Practice',
         storageKey: 'default-playground',
         kind: WorkspaceProjectKind.practice,
+        lifecycle: WorkspaceLifecycle.temporary,
         createdAt: now,
         updatedAt: now,
       ),
@@ -163,6 +233,7 @@ void main() {
                 activeProject: projects.first,
                 onSelect: (_) {},
                 onCreate: () {},
+                onKeep: () {},
                 onRename: () {},
                 onDelete: () {},
               ),
@@ -173,6 +244,7 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('workspace-project-selector')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workspace-project-keep')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

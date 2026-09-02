@@ -12,6 +12,7 @@ class WorkspaceProjectBar extends StatelessWidget {
     required this.onRename,
     required this.onDelete,
     this.onImport,
+    this.onKeep,
   });
 
   final List<WorkspaceProject> projects;
@@ -21,6 +22,7 @@ class WorkspaceProjectBar extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onDelete;
   final VoidCallback? onImport;
+  final VoidCallback? onKeep;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +80,14 @@ class WorkspaceProjectBar extends StatelessWidget {
                     onPressed: onImport,
                     icon: const Icon(Icons.folder_open_outlined, size: 18),
                   ),
+                  if (activeProject.lifecycle == WorkspaceLifecycle.temporary)
+                    IconButton(
+                      key: const ValueKey('workspace-project-keep'),
+                      tooltip: '保留当前临时练习',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onKeep,
+                      icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                    ),
                   IconButton(
                     key: const ValueKey('workspace-project-rename'),
                     tooltip: '重命名当前练习',
@@ -96,9 +106,7 @@ class WorkspaceProjectBar extends StatelessWidget {
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        activeProject.kind == WorkspaceProjectKind.importedFlutter
-                            ? '已导入 Flutter 项目 · 浏览器本地保存'
-                            : '浏览器本地练习 · 自动保存',
+                        _statusText(activeProject),
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
@@ -111,5 +119,15 @@ class WorkspaceProjectBar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _statusText(WorkspaceProject project) {
+    if (project.kind == WorkspaceProjectKind.importedFlutter) {
+      return '已导入 Flutter Workspace · 浏览器本地保存';
+    }
+    if (project.lifecycle == WorkspaceLifecycle.temporary) {
+      return '临时练习 · 浏览器自动保存';
+    }
+    return '已保留 Workspace · 浏览器本地保存';
   }
 }

@@ -18,6 +18,7 @@ class WorkspaceProjectLibrary {
           name: 'Flutter Practice',
           storageKey: defaultStorageKey,
           kind: WorkspaceProjectKind.practice,
+          lifecycle: WorkspaceLifecycle.saved,
           createdAt: now,
           updatedAt: now,
         ),
@@ -67,6 +68,7 @@ class WorkspaceProjectLibrary {
       name: cleanName,
       storageKey: 'workspace:$id',
       kind: WorkspaceProjectKind.practice,
+      lifecycle: WorkspaceLifecycle.temporary,
       createdAt: now,
       updatedAt: now,
     );
@@ -89,6 +91,7 @@ class WorkspaceProjectLibrary {
       name: cleanName,
       storageKey: 'workspace:$id',
       kind: WorkspaceProjectKind.importedFlutter,
+      lifecycle: WorkspaceLifecycle.saved,
       createdAt: now,
       updatedAt: now,
     );
@@ -130,6 +133,20 @@ class WorkspaceProjectLibrary {
     _projects[index] = _projects[index].copyWith(
       name: _validateName(name),
       updatedAt: now,
+    );
+    await catalogStore.saveProjects(projects);
+  }
+
+  Future<void> keepProject(String id) async {
+    final index = _projects.indexWhere((project) => project.id == id);
+    if (index == -1) {
+      throw ArgumentError('Workspace project does not exist: $id');
+    }
+    if (_projects[index].lifecycle == WorkspaceLifecycle.saved) return;
+
+    _projects[index] = _projects[index].copyWith(
+      lifecycle: WorkspaceLifecycle.saved,
+      updatedAt: DateTime.now().toUtc(),
     );
     await catalogStore.saveProjects(projects);
   }
