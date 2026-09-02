@@ -41,7 +41,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
               final isCompact = constraints.maxWidth < 700;
               if (isCompact) {
                 return DefaultTabController(
-                  length: 2,
+                  length: 3,
                   child: Builder(
                     builder: (tabContext) => CompactPlaygroundLayout(
                       controller: controller,
