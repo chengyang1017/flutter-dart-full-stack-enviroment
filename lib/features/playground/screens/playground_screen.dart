@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 
 import '../../export/services/workspace_import_picker.dart';
 import '../../project_import/services/flutter_project_zip_import_service.dart';
@@ -12,9 +11,9 @@ import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
 import '../../runner/services/runner_preview_tab.dart';
 import '../../runner/widgets/runner_target_dialog.dart';
-import '../../workspace/services/hive_workspace_project_catalog_store.dart';
-import '../../workspace/services/hive_workspace_snapshot_store.dart';
+import '../../workspace/services/hive_workspace_persistence.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
+import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
 import '../../workspace/widgets/workspace_project_bar.dart';
@@ -32,14 +31,12 @@ class PlaygroundScreen extends StatefulWidget {
 
 class _PlaygroundScreenState extends State<PlaygroundScreen> {
   static const _runnerApiUrl = String.fromEnvironment('RUNNER_API_URL');
-  static const _workspaceBoxName = 'workspace_snapshots';
-  static const _workspaceLibraryBoxName = 'workspace_library';
 
   late PlaygroundController controller;
   late FlutterRunnerController runner;
 
+  WorkspacePersistence? _workspacePersistence;
   WorkspaceProjectLibrary? _projectLibrary;
-  WorkspaceSnapshotStore? _snapshotStore;
   KeyedWorkspaceSnapshotStore? _activeProjectStore;
   RunnerPreviewTabHandle? _pendingWebPreviewTab;
 
@@ -51,25 +48,16 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   }
 
   void _initializeProjectLibrary() {
-    if (!Hive.isBoxOpen(_workspaceBoxName)) return;
+    final persistence = HiveWorkspacePersistence.tryFromOpenBoxes();
+    if (persistence == null) return;
 
-    final snapshots = HiveWorkspaceSnapshotStore(
-      Hive.box<dynamic>(_workspaceBoxName),
-    );
-    _snapshotStore = snapshots;
-
-    if (!Hive.isBoxOpen(_workspaceLibraryBoxName)) return;
-    _projectLibrary = WorkspaceProjectLibrary(
-      catalogStore: HiveWorkspaceProjectCatalogStore(
-        Hive.box<dynamic>(_workspaceLibraryBoxName),
-      ),
-      snapshotStore: snapshots,
-    );
+    _workspacePersistence = persistence;
+    _projectLibrary = WorkspaceProjectLibrary.fromPersistence(persistence);
   }
 
   void _createControllers() {
     final project = _projectLibrary?.activeProject;
-    final snapshotStore = _snapshotStore;
+    final snapshotStore = _workspacePersistence?.snapshotStore;
 
     WorkspaceSnapshotStore? workspaceStore = snapshotStore;
     if (project != null && snapshotStore != null) {
