@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../export/services/workspace_export_download.dart';
+import '../../export/services/workspace_export_service.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
 
@@ -18,6 +20,9 @@ class PlaygroundToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final density = compact ? VisualDensity.compact : VisualDensity.standard;
+    final canExport = controller.workspace.isDirty &&
+        supportsWorkspaceExportDownload;
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: SizedBox(
@@ -34,6 +39,15 @@ class PlaygroundToolbar extends StatelessWidget {
                   onPressed: onRun ?? controller.runCode,
                   icon: const Icon(Icons.bolt),
                   label: const Text('快速预览'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: canExport
+                      ? () => _exportWorkspace(context)
+                      : null,
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('导出修改'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -101,5 +115,31 @@ class PlaygroundToolbar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _exportWorkspace(BuildContext context) async {
+    try {
+      final bundle = const WorkspaceExportService().build(
+        controller.workspace,
+      );
+      await downloadWorkspaceExport(
+        bundle.bytes,
+        bundle.fileName,
+      );
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已导出 ${bundle.manifest.changes.length} 个修改：${bundle.fileName}',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败：$error')),
+      );
+    }
   }
 }
