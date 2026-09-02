@@ -150,9 +150,10 @@ class _DartFrogApiLabDialogState extends State<DartFrogApiLabDialog> {
             Row(
               children: [
                 SizedBox(
-                  width: 110,
+                  width: 140,
                   child: DropdownButtonFormField<String>(
                     value: _method,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Method',
                       border: OutlineInputBorder(),
