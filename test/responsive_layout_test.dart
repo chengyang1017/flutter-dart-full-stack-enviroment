@@ -18,12 +18,14 @@ Future<void> pumpAtSize(
 }
 
 void main() {
-  testWidgets('宽度 390 显示代码和预览标签', (tester) async {
+  testWidgets('宽度 390 显示代码、预览、文件和控制台标签', (tester) async {
     await pumpAtSize(tester, const Size(390, 844));
 
     expect(find.byType(TabBar), findsOneWidget);
     expect(find.text('代码'), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
+    expect(find.text('文件'), findsOneWidget);
+    expect(find.text('控制台'), findsOneWidget);
   });
 
   testWidgets('宽度 390 不出现横向 RenderFlex overflow', (tester) async {
@@ -42,7 +44,7 @@ void main() {
     );
   });
 
-  testWidgets('宽度 1000 显示宽屏 Row 双栏布局', (tester) async {
+  testWidgets('宽度 1000 显示宽屏 Workspace 与代码预览标签', (tester) async {
     await pumpAtSize(tester, const Size(1000, 800));
 
     final wideLayout = find.byKey(const ValueKey('wide-playground-layout'));
@@ -51,7 +53,9 @@ void main() {
       find.descendant(of: wideLayout, matching: find.byType(Row)),
       findsWidgets,
     );
-    expect(find.byType(TabBar), findsNothing);
+    expect(find.byType(TabBar), findsOneWidget);
+    expect(find.text('代码'), findsOneWidget);
+    expect(find.text('预览'), findsOneWidget);
   });
 
   testWidgets('DevicePreviewFrame 保持 390 / 844 比例', (tester) async {
