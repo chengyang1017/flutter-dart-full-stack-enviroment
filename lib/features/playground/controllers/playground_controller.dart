@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../../workspace/controllers/workspace_controller.dart';
 import '../models/ui_node.dart';
 import '../parser/flutter_ui_parser.dart';
 
@@ -15,13 +16,19 @@ enum PreviewDevice {
 
 class PlaygroundController extends ChangeNotifier {
   PlaygroundController() {
+    workspace = WorkspaceController.flutterPlayground(
+      mainDartContent: exampleCode,
+    );
+    _loadedWorkspacePath = workspace.activePath;
+
     textController = CodeLineEditingController.fromText(
-      exampleCode,
+      workspace.activeEntry?.content ?? '',
       const CodeLineOptions(
         indentSize: 4,
       ),
     );
 
+    workspace.addListener(_handleWorkspaceChanged);
     runCode();
   }
 
@@ -64,10 +71,13 @@ class PlaygroundController extends ChangeNotifier {
 )""";
 
   late final CodeLineEditingController textController;
+  late final WorkspaceController workspace;
 
   final FlutterUiParser _parser = FlutterUiParser();
 
   Timer? _debounce;
+  String _loadedWorkspacePath = '';
+  bool _syncingWorkspaceSelection = false;
 
   UiNode? root;
   String? error;
@@ -80,11 +90,31 @@ class PlaygroundController extends ChangeNotifier {
   PreviewDevice device = PreviewDevice.androidPhone;
 
   String get code => textController.text;
+  String get activeFilePath => workspace.activePath;
+
+  bool get canQuickPreview => activeFilePath.endsWith('.dart');
+
+  void selectWorkspaceFile(String path) {
+    workspace.openFile(path);
+  }
+
+  void closeWorkspaceFile(String path) {
+    workspace.closeFile(path);
+  }
+
+  void resetWorkspace() {
+    workspace.resetWorkspace();
+    runCode();
+  }
 
   void updateCode() {
-    // 中文输入法仍在组字时，不触发解析。
     if (textController.isComposing) {
       return;
+    }
+
+    final path = workspace.activePath;
+    if (path.isNotEmpty) {
+      workspace.updateFileContent(path, textController.text);
     }
 
     error = null;
@@ -118,6 +148,14 @@ class PlaygroundController extends ChangeNotifier {
       return;
     }
 
+    if (!canQuickPreview) {
+      root = null;
+      error = 'Quick Preview 只解析 Dart Widget 代码。当前文件：$activeFilePath';
+      isParsing = false;
+      notifyListeners();
+      return;
+    }
+
     try {
       root = _parser.parse(code);
     } catch (exception) {
@@ -133,6 +171,10 @@ class PlaygroundController extends ChangeNotifier {
     _debounce?.cancel();
 
     textController.text = '';
+    final path = workspace.activePath;
+    if (path.isNotEmpty) {
+      workspace.updateFileContent(path, '');
+    }
 
     root = null;
     error = null;
@@ -144,6 +186,8 @@ class PlaygroundController extends ChangeNotifier {
   void resetExample() {
     _debounce?.cancel();
 
+    workspace.openFile('lib/main.dart');
+    workspace.updateFileContent('lib/main.dart', exampleCode);
     textController.text = exampleCode;
     runCode();
   }
@@ -189,9 +233,28 @@ class PlaygroundController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _handleWorkspaceChanged() {
+    if (_syncingWorkspaceSelection) return;
+
+    final path = workspace.activePath;
+    if (path != _loadedWorkspacePath) {
+      _syncingWorkspaceSelection = true;
+      _loadedWorkspacePath = path;
+      textController.text = workspace.activeEntry?.content ?? '';
+      root = null;
+      error = null;
+      warnings = [];
+      _syncingWorkspaceSelection = false;
+    }
+
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
+    workspace.removeListener(_handleWorkspaceChanged);
+    workspace.dispose();
     textController.dispose();
 
     super.dispose();
