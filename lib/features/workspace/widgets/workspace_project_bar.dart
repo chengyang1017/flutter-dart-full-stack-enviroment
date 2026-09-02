@@ -11,6 +11,7 @@ class WorkspaceProjectBar extends StatelessWidget {
     required this.onCreate,
     required this.onRename,
     required this.onDelete,
+    this.onImport,
   });
 
   final List<WorkspaceProject> projects;
@@ -19,6 +20,7 @@ class WorkspaceProjectBar extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onRename;
   final VoidCallback onDelete;
+  final VoidCallback? onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +30,7 @@ class WorkspaceProjectBar extends StatelessWidget {
         height: 44,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final showStatus = constraints.maxWidth >= 620;
+            final showStatus = constraints.maxWidth >= 700;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -68,6 +70,13 @@ class WorkspaceProjectBar extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     onPressed: onCreate,
                     icon: const Icon(Icons.add, size: 19),
+                  ),
+                  IconButton(
+                    key: const ValueKey('workspace-project-import'),
+                    tooltip: '打开 Flutter 项目 ZIP',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onImport,
+                    icon: const Icon(Icons.folder_open_outlined, size: 18),
                   ),
                   IconButton(
                     key: const ValueKey('workspace-project-rename'),
