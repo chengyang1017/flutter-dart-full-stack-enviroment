@@ -6,22 +6,28 @@ import '../../workspace/controllers/workspace_controller.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
 import '../models/runner_preview_target.dart';
+import '../models/workspace_runner_source.dart';
 import '../services/flutter_runner_client.dart';
+import '../services/workspace_runner_source_provider.dart';
 
 class FlutterRunnerController extends ChangeNotifier {
   FlutterRunnerController({
     required this.workspace,
     required this.client,
-  });
+    WorkspaceRunnerSourceProvider? sourceProvider,
+  }) : sourceProvider =
+            sourceProvider ?? LocalWorkspaceRunnerSourceProvider(workspace);
 
   final WorkspaceController workspace;
   final FlutterRunnerClient client;
+  final WorkspaceRunnerSourceProvider sourceProvider;
 
   RunSession? session;
   RunnerStatus status = RunnerStatus.idle;
   RunnerPreviewTarget previewTarget = RunnerPreviewTarget.phone;
   RunnerPreviewOrientation previewOrientation = RunnerPreviewOrientation.portrait;
   final List<String> logs = [];
+  String? lastSyncedSourceRevision;
 
   StreamSubscription<RunnerEvent>? _eventsSubscription;
   bool _disposed = false;
@@ -66,13 +72,11 @@ class FlutterRunnerController extends ChangeNotifier {
     if (!canRun) return;
 
     try {
-      final currentSession = await _ensureSession();
       _setStatus(RunnerStatus.syncing);
-      await client.syncWorkspace(
-        sessionId: currentSession.id,
-        files: _workspaceFiles(),
-        changes: workspace.changes,
-      );
+      final source = await sourceProvider.prepare();
+      final currentSession = await _ensureSession(source);
+      _setStatus(RunnerStatus.syncing);
+      await _syncSource(currentSession.id, source);
       _setStatus(RunnerStatus.starting);
       await client.run(currentSession.id);
     } catch (error) {
@@ -85,11 +89,8 @@ class FlutterRunnerController extends ChangeNotifier {
 
     try {
       _setStatus(RunnerStatus.syncing);
-      await client.syncWorkspace(
-        sessionId: session!.id,
-        files: _workspaceFiles(),
-        changes: workspace.changes,
-      );
+      final source = await sourceProvider.prepare();
+      await _syncSource(session!.id, source);
       _setStatus(RunnerStatus.reloading);
       await client.hotReload(session!.id);
     } catch (error) {
@@ -102,11 +103,8 @@ class FlutterRunnerController extends ChangeNotifier {
 
     try {
       _setStatus(RunnerStatus.syncing);
-      await client.syncWorkspace(
-        sessionId: session!.id,
-        files: _workspaceFiles(),
-        changes: workspace.changes,
-      );
+      final source = await sourceProvider.prepare();
+      await _syncSource(session!.id, source);
       _setStatus(RunnerStatus.restarting);
       await client.hotRestart(session!.id);
     } catch (error) {
@@ -131,7 +129,7 @@ class FlutterRunnerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<RunSession> _ensureSession() async {
+  Future<RunSession> _ensureSession(WorkspaceRunnerSource source) async {
     final current = session;
     if (current != null) return current;
 
@@ -139,7 +137,7 @@ class FlutterRunnerController extends ChangeNotifier {
     _appendLog('Creating ${client.displayName} session...');
 
     final created = await client.createSession(
-      files: _workspaceFiles(),
+      files: source.files,
     );
     session = created;
     _setStatus(created.status);
@@ -155,11 +153,20 @@ class FlutterRunnerController extends ChangeNotifier {
     return created;
   }
 
-  Map<String, String> _workspaceFiles() {
-    return {
-      for (final entry in workspace.entries)
-        if (entry.isFile) entry.path: entry.content,
-    };
+  Future<void> _syncSource(
+    String sessionId,
+    WorkspaceRunnerSource source,
+  ) async {
+    await client.syncWorkspace(
+      sessionId: sessionId,
+      files: source.files,
+      changes: source.changes,
+    );
+    lastSyncedSourceRevision = source.remoteRevision;
+    final revision = source.remoteRevision;
+    if (revision != null) {
+      _appendLog('Synced persisted Workspace revision $revision to Runner.');
+    }
   }
 
   void _handleEvent(RunnerEvent event) {
