@@ -20,6 +20,13 @@ jobs:
         run: flutter pub get
       - name: Run Flutter tests
         run: flutter test
+      - name: Verify flutterpractice create CLI
+        run: |
+          cd tool/flutterpractice_cli
+          dart pub get
+          dart analyze
+          dart test
+          dart run tool/create_smoke.dart
 
   runner-server:
     runs-on: ubuntu-latest
