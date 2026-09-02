@@ -1,3 +1,4 @@
+import 'workspace_identity.dart';
 import 'workspace_project.dart';
 import 'workspace_snapshot.dart';
 
@@ -79,10 +80,13 @@ class WorkspaceRemoteDocument {
 
 class WorkspaceHydrationResult {
   const WorkspaceHydrationResult({
+    required this.identity,
     required this.catalog,
     required this.activeDocument,
   });
 
+  /// Identity whose authenticated session produced this catalog/document.
+  final WorkspaceIdentity identity;
   final WorkspaceRemoteCatalog catalog;
   final WorkspaceRemoteDocument? activeDocument;
 }
