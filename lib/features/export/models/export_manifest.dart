@@ -10,6 +10,31 @@ class ExportManifest {
     this.template = 'flutter-playground',
   });
 
+  factory ExportManifest.fromJson(Map<String, dynamic> json) {
+    final rawChanges = json['changes'];
+    final rawPayloadFiles = json['payloadFiles'];
+
+    if (rawChanges is! List || rawPayloadFiles is! List) {
+      throw const FormatException('Invalid workspace export manifest.');
+    }
+
+    return ExportManifest(
+      formatVersion: json['formatVersion'] as int? ?? 0,
+      projectType: json['projectType'] as String? ?? '',
+      template: json['template'] as String? ?? '',
+      exportedAt: DateTime.parse(json['exportedAt'] as String),
+      changes: rawChanges.map((raw) {
+        final map = Map<String, dynamic>.from(raw as Map);
+        return WorkspaceChange(
+          type: WorkspaceChangeType.values.byName(map['type'] as String),
+          path: map['path'] as String,
+          previousPath: map['previousPath'] as String?,
+        );
+      }).toList(growable: false),
+      payloadFiles: rawPayloadFiles.cast<String>().toList(growable: false),
+    );
+  }
+
   final int formatVersion;
   final String projectType;
   final String template;
