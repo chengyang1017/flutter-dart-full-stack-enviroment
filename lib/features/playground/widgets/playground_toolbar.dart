@@ -14,12 +14,14 @@ class PlaygroundToolbar extends StatelessWidget {
     required this.controller,
     required this.runner,
     this.compact = false,
+    this.onRun,
     this.onQuickPreview,
   });
 
   final PlaygroundController controller;
   final FlutterRunnerController runner;
   final bool compact;
+  final VoidCallback? onRun;
   final VoidCallback? onQuickPreview;
 
   @override
@@ -41,7 +43,7 @@ class PlaygroundToolbar extends StatelessWidget {
               children: [
                 FilledButton.icon(
                   style: FilledButton.styleFrom(visualDensity: density),
-                  onPressed: runner.canRun ? runner.run : null,
+                  onPressed: runner.canRun ? (onRun ?? runner.run) : null,
                   icon: const Icon(Icons.play_arrow),
                   label: Text(runner.isMock ? 'Run (Mock)' : 'Run'),
                 ),
