@@ -144,7 +144,10 @@ Container(
 
     final path = workspace.activePath;
     if (path.isNotEmpty) {
-      workspace.updateFileContent(path, textController.text);
+      // Keep Workspace data current immediately, but do not rebuild the entire
+      // Playground for every key press. The Workspace controller only refreshes
+      // its dirty-state UI after a short idle period.
+      workspace.updateFileContentFromEditor(path, textController.text);
     }
 
     error = null;
@@ -280,15 +283,25 @@ Container(
     if (_syncingWorkspaceSelection) return;
 
     final path = workspace.activePath;
-    if (path != _loadedWorkspacePath) {
-      _syncingWorkspaceSelection = true;
-      _loadedWorkspacePath = path;
-      textController.text = workspace.activeEntry?.content ?? '';
-      root = null;
-      error = null;
-      warnings = [];
-      _syncingWorkspaceSelection = false;
+    final workspaceContent = workspace.activeEntry?.content ?? '';
+    final pathChanged = path != _loadedWorkspacePath;
+    final contentChangedOutsideEditor = workspaceContent != textController.text;
+
+    // Normal typing already lives inside CodeLineEditingController. Rebuilding
+    // the whole screen here is what made keyboard input feel sticky. Only relay
+    // changes when another Workspace action actually changes what the editor
+    // must display (switch/reset/import/rename/delete).
+    if (!pathChanged && !contentChangedOutsideEditor) {
+      return;
     }
+
+    _syncingWorkspaceSelection = true;
+    _loadedWorkspacePath = path;
+    textController.text = workspaceContent;
+    root = null;
+    error = null;
+    warnings = [];
+    _syncingWorkspaceSelection = false;
 
     notifyListeners();
   }
