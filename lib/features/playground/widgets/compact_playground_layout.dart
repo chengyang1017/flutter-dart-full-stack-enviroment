@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/widgets/runner_console_panel.dart';
+import '../../workspace/widgets/workspace_editor_tabs.dart';
 import '../../workspace/widgets/workspace_file_explorer.dart';
 import '../controllers/playground_controller.dart';
 import 'code_editor_panel.dart';
@@ -10,10 +13,12 @@ class CompactPlaygroundLayout extends StatelessWidget {
   const CompactPlaygroundLayout({
     super.key,
     required this.controller,
+    required this.runner,
     required this.toolbar,
   });
 
   final PlaygroundController controller;
+  final FlutterRunnerController runner;
   final Widget toolbar;
 
   @override
@@ -22,10 +27,12 @@ class CompactPlaygroundLayout extends StatelessWidget {
           const _TitleBar(),
           toolbar,
           const TabBar(
+            isScrollable: true,
             tabs: [
               Tab(text: '代码', icon: Icon(Icons.code)),
               Tab(text: '预览', icon: Icon(Icons.phone_android)),
               Tab(text: '文件', icon: Icon(Icons.folder_outlined)),
+              Tab(text: '控制台', icon: Icon(Icons.terminal)),
             ],
           ),
           Expanded(
@@ -37,6 +44,7 @@ class CompactPlaygroundLayout extends StatelessWidget {
                   workspace: controller.workspace,
                   onOpenFile: controller.selectWorkspaceFile,
                 ),
+                RunnerConsolePanel(runner: runner),
               ],
             ),
           ),
@@ -52,6 +60,11 @@ class _EditorWithErrors extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) => Column(
           children: [
+            WorkspaceEditorTabs(
+              workspace: controller.workspace,
+              onSelect: controller.selectWorkspaceFile,
+              onClose: controller.closeWorkspaceFile,
+            ),
             Expanded(child: CodeEditorPanel(controller: controller)),
             ErrorPanel(
               controller: controller,
