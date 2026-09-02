@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../../workspace/controllers/workspace_controller.dart';
+import '../../workspace/services/workspace_autosave.dart';
+import '../../workspace/services/workspace_snapshot_store.dart';
 import '../models/ui_node.dart';
 import '../parser/flutter_ui_parser.dart';
 
@@ -15,10 +17,19 @@ enum PreviewDevice {
 }
 
 class PlaygroundController extends ChangeNotifier {
-  PlaygroundController() {
+  PlaygroundController({WorkspaceSnapshotStore? workspaceStore}) {
     workspace = WorkspaceController.flutterPlayground(
       mainDartContent: exampleCode,
     );
+
+    if (workspaceStore != null) {
+      _workspaceAutosave = WorkspaceAutosave(
+        workspace: workspace,
+        store: workspaceStore,
+        storageKey: workspaceStorageKey,
+      );
+    }
+
     _loadedWorkspacePath = workspace.activePath;
 
     textController = CodeLineEditingController.fromText(
@@ -32,6 +43,7 @@ class PlaygroundController extends ChangeNotifier {
     runCode();
   }
 
+  static const workspaceStorageKey = 'default-playground';
   static const _quickPreviewStart = '// QUICK_PREVIEW_START';
   static const _quickPreviewEnd = '// QUICK_PREVIEW_END';
 
@@ -105,6 +117,7 @@ Container(
 
   final FlutterUiParser _parser = FlutterUiParser();
 
+  WorkspaceAutosave? _workspaceAutosave;
   Timer? _debounce;
   String _loadedWorkspacePath = '';
   bool _syncingWorkspaceSelection = false;
@@ -121,6 +134,8 @@ Container(
 
   String get code => textController.text;
   String get activeFilePath => workspace.activePath;
+  bool get restoredBrowserWorkspace =>
+      _workspaceAutosave?.restoredSnapshot ?? false;
 
   bool get canQuickPreview => activeFilePath.endsWith('.dart');
 
@@ -137,6 +152,9 @@ Container(
     runCode();
   }
 
+  Future<void> flushWorkspacePersistence() =>
+      _workspaceAutosave?.flush() ?? Future<void>.value();
+
   void updateCode() {
     if (textController.isComposing) {
       return;
@@ -144,9 +162,6 @@ Container(
 
     final path = workspace.activePath;
     if (path.isNotEmpty) {
-      // Keep Workspace data current immediately, but do not rebuild the entire
-      // Playground for every key press. The Workspace controller only refreshes
-      // its dirty-state UI after a short idle period.
       workspace.updateFileContentFromEditor(path, textController.text);
     }
 
@@ -287,8 +302,6 @@ Container(
     final pathChanged = path != _loadedWorkspacePath;
     final contentChangedOutsideEditor = workspaceContent != textController.text;
 
-    // A debounced editor-content notification reaches here after typing pauses.
-    // Refresh the surrounding file tree/tab dirty markers once, not per key.
     if (!pathChanged && !contentChangedOutsideEditor) {
       notifyListeners();
       return;
@@ -308,6 +321,7 @@ Container(
   @override
   void dispose() {
     _debounce?.cancel();
+    _workspaceAutosave?.dispose();
     workspace.removeListener(_handleWorkspaceChanged);
     workspace.dispose();
     textController.dispose();

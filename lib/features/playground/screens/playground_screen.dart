@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 
 import '../../runner/controllers/flutter_runner_controller.dart';
 import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
+import '../../workspace/services/hive_workspace_snapshot_store.dart';
 import '../controllers/playground_controller.dart';
 import '../widgets/compact_playground_layout.dart';
 import '../widgets/playground_toolbar.dart';
@@ -17,6 +19,7 @@ class PlaygroundScreen extends StatefulWidget {
 
 class _PlaygroundScreenState extends State<PlaygroundScreen> {
   static const _runnerApiUrl = String.fromEnvironment('RUNNER_API_URL');
+  static const _workspaceBoxName = 'workspace_snapshots';
 
   late final PlaygroundController controller;
   late final FlutterRunnerController runner;
@@ -24,7 +27,11 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   @override
   void initState() {
     super.initState();
-    controller = PlaygroundController()..addListener(_refresh);
+    final workspaceStore = Hive.isBoxOpen(_workspaceBoxName)
+        ? HiveWorkspaceSnapshotStore(Hive.box<dynamic>(_workspaceBoxName))
+        : null;
+    controller = PlaygroundController(workspaceStore: workspaceStore)
+      ..addListener(_refresh);
     runner = FlutterRunnerController(
       workspace: controller.workspace,
       client: _runnerApiUrl.isEmpty
