@@ -153,6 +153,14 @@ class FlutterRunnerController extends ChangeNotifier {
           _appendLog(message);
         }
         break;
+      case RunnerEventType.session:
+        final nextSession = event.session;
+        if (nextSession != null) {
+          session = nextSession;
+          status = nextSession.status;
+          notifyListeners();
+        }
+        break;
     }
   }
 
