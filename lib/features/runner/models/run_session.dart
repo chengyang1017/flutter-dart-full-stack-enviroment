@@ -43,6 +43,7 @@ class RunSession {
     required this.lastActivityAt,
     this.projectType = 'flutter',
     this.previewUrl,
+    this.backendUrl,
   });
 
   factory RunSession.fromJson(Map<String, dynamic> json) {
@@ -53,6 +54,7 @@ class RunSession {
       createdAt: DateTime.parse(json['createdAt'] as String),
       lastActivityAt: DateTime.parse(json['lastActivityAt'] as String),
       previewUrl: json['previewUrl'] as String?,
+      backendUrl: json['backendUrl'] as String?,
     );
   }
 
@@ -62,6 +64,7 @@ class RunSession {
   final DateTime createdAt;
   final DateTime lastActivityAt;
   final String? previewUrl;
+  final String? backendUrl;
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -70,6 +73,7 @@ class RunSession {
         'createdAt': createdAt.toUtc().toIso8601String(),
         'lastActivityAt': lastActivityAt.toUtc().toIso8601String(),
         'previewUrl': previewUrl,
+        'backendUrl': backendUrl,
       };
 
   RunSession copyWith({
@@ -77,6 +81,8 @@ class RunSession {
     DateTime? lastActivityAt,
     String? previewUrl,
     bool clearPreviewUrl = false,
+    String? backendUrl,
+    bool clearBackendUrl = false,
   }) {
     return RunSession(
       id: id,
@@ -85,6 +91,7 @@ class RunSession {
       createdAt: createdAt,
       lastActivityAt: lastActivityAt ?? this.lastActivityAt,
       previewUrl: clearPreviewUrl ? null : previewUrl ?? this.previewUrl,
+      backendUrl: clearBackendUrl ? null : backendUrl ?? this.backendUrl,
     );
   }
 }

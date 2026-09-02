@@ -5,6 +5,7 @@ import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/widgets/dart_frog_api_lab_dialog.dart';
 import '../../workspace/services/dart_frog_workspace_service.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
@@ -32,6 +33,8 @@ class PlaygroundToolbar extends StatelessWidget {
         supportsWorkspaceExportDownload;
     const dartFrog = DartFrogWorkspaceService();
     final dartFrogEnabled = dartFrog.isEnabled(controller.workspace);
+    final backendUrl = runner.session?.backendUrl;
+    final canOpenApiLab = backendUrl != null && runner.canHotReload;
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -66,6 +69,23 @@ class PlaygroundToolbar extends StatelessWidget {
                   label: Text(
                     dartFrogEnabled ? 'Dart Frog' : '+ Dart Frog',
                   ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('dart-frog-api-lab-button'),
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: canOpenApiLab
+                      ? () {
+                          showDialog<void>(
+                            context: context,
+                            builder: (_) => DartFrogApiLabDialog(
+                              baseUrl: backendUrl!,
+                            ),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.http),
+                  label: const Text('API 调试'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
