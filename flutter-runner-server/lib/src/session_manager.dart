@@ -10,11 +10,16 @@ class SessionManager {
     required this.rootDirectory,
     required this.executionBackend,
     required this.previewUrlTemplate,
+    required this.backendUrlTemplate,
   });
+
+  static const flutterProjectType = 'flutter';
+  static const flutterDartFrogProjectType = 'flutter-dart-frog';
 
   final Directory rootDirectory;
   final RunnerExecutionBackend executionBackend;
   final String previewUrlTemplate;
+  final String backendUrlTemplate;
 
   final Map<String, RunnerSession> _sessions = <String, RunnerSession>{};
   int _nextSession = 1;
@@ -44,7 +49,7 @@ class SessionManager {
       id: id,
       directory: directory,
       createdAt: now,
-    );
+    )..projectType = _detectProjectType(files);
     _sessions[id] = session;
 
     try {
@@ -70,11 +75,16 @@ class SessionManager {
 
       await syncWorkspace(session, files);
       session.setStatus('ready');
-      session.addLog('[runner] Flutter session is ready.');
+      session.addLog(
+        session.projectType == flutterDartFrogProjectType
+            ? '[runner] Flutter + Dart Frog session is ready.'
+            : '[runner] Flutter session is ready.',
+      );
       return session;
     } catch (error) {
       session.setStatus('error');
       session.addLog('[runner] Session creation failed: $error');
+      await _cleanupFailedSession(session);
       rethrow;
     }
   }
@@ -116,6 +126,7 @@ class SessionManager {
       session.managedFiles
         ..clear()
         ..addAll(incoming);
+      session.projectType = _detectProjectType(files);
 
       if (previousStatus == 'running' ||
           previousStatus == 'reloading' ||
@@ -128,7 +139,8 @@ class SessionManager {
       }
 
       session.addLog(
-        '[runner] Synced ${files.length} workspace files.',
+        '[runner] Synced ${files.length} workspace files '
+        '(${session.projectType}).',
       );
     } catch (_) {
       session.setStatus('error');
@@ -137,35 +149,80 @@ class SessionManager {
   }
 
   Future<void> run(RunnerSession session) async {
-    if (session.process != null) {
-      throw StateError('Flutter process is already running.');
+    if (session.process != null || session.backendProcess != null) {
+      throw StateError('Runner processes are already active.');
     }
 
     session.previewUrl = null;
+    session.backendUrl = null;
     session.setStatus('starting');
     session.addLog('[runner] flutter pub get');
 
-    final pubExit = await executionBackend.runFlutterCommand(
+    final flutterPubExit = await executionBackend.runFlutterCommand(
       session,
       const ['pub', 'get'],
     );
-    if (pubExit != 0) {
+    if (flutterPubExit != 0) {
       session.setStatus('error');
-      throw StateError('flutter pub get exited with code $pubExit');
+      throw StateError('flutter pub get exited with code $flutterPubExit');
     }
 
+    final dartDefines = <String, String>{};
+
     try {
-      final launch = await executionBackend.startFlutterWeb(session);
+      if (_isFullStack(session)) {
+        session.addLog('[backend] dart pub get');
+        final backendPubExit = await executionBackend.runDartCommand(
+          session,
+          const ['pub', 'get'],
+        );
+        if (backendPubExit != 0) {
+          throw StateError(
+            'backend dart pub get exited with code $backendPubExit',
+          );
+        }
+
+        final backendLaunch = await executionBackend.startDartFrog(session);
+        session.backendProcess = backendLaunch.process;
+        session.backendUrl = backendUrlTemplate.replaceAll(
+          '{port}',
+          '${backendLaunch.previewPort}',
+        );
+        session.addLog('[backend] ${backendLaunch.description}');
+        _listenToBackendOutput(session, backendLaunch.process);
+        unawaited(_watchBackendExit(session, backendLaunch.process));
+        dartDefines['API_URL'] = session.backendUrl!;
+      }
+
+      final launch = await executionBackend.startFlutterWeb(
+        session,
+        dartDefines: dartDefines,
+      );
       session.previewUrl = previewUrlTemplate.replaceAll(
         '{port}',
         '${launch.previewPort}',
       );
       session.addLog('[runner] ${launch.description}');
+      if (dartDefines.isNotEmpty) {
+        session.addLog(
+          '[runner] Injected API_URL=${dartDefines['API_URL']}',
+        );
+      }
       session.process = launch.process;
 
       _listenToFlutterOutput(session, launch.process);
-      unawaited(_watchProcessExit(session, launch.process));
-    } catch (_) {
+      unawaited(_watchFlutterExit(session, launch.process));
+    } catch (error) {
+      final backendProcess = session.backendProcess;
+      if (backendProcess != null) {
+        try {
+          await _stopBackendProcess(session, backendProcess);
+        } catch (_) {
+          // Preserve the original run error.
+        }
+      }
+      session.backendProcess = null;
+      session.backendUrl = null;
       session.setStatus('error');
       rethrow;
     }
@@ -178,10 +235,17 @@ class SessionManager {
     }
 
     session.setStatus('reloading');
-    session.addLog('[runner] Hot reload requested.');
+    final backendProcess = session.backendProcess;
+    if (_isFullStack(session) && backendProcess != null) {
+      session.addLog('[backend] Hot reload requested.');
+      backendProcess.stdin.writeln('r');
+      await backendProcess.stdin.flush();
+    }
+
+    session.addLog('[runner] Flutter hot reload requested.');
     process.stdin.writeln('r');
     await process.stdin.flush();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
     if (session.process == process) {
       session.setStatus('running');
     }
@@ -194,46 +258,46 @@ class SessionManager {
     }
 
     session.setStatus('restarting');
-    session.addLog('[runner] Hot restart requested.');
+    final backendProcess = session.backendProcess;
+    if (_isFullStack(session) && backendProcess != null) {
+      session.addLog('[backend] Hot restart requested.');
+      backendProcess.stdin.writeln('R');
+      await backendProcess.stdin.flush();
+    }
+
+    session.addLog('[runner] Flutter hot restart requested.');
     process.stdin.writeln('R');
     await process.stdin.flush();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     if (session.process == process) {
       session.setStatus('running');
     }
   }
 
   Future<void> stop(RunnerSession session) async {
-    final process = session.process;
-    if (process == null) {
+    final flutterProcess = session.process;
+    final backendProcess = session.backendProcess;
+
+    if (flutterProcess == null && backendProcess == null) {
       session.previewUrl = null;
+      session.backendUrl = null;
       session.setStatus('stopped');
       return;
     }
 
     session.setStatus('stopping');
-    session.addLog('[runner] Stopping Flutter process...');
 
-    try {
-      process.stdin.writeln('q');
-      await process.stdin.flush();
-      await process.exitCode.timeout(const Duration(seconds: 5));
-    } on TimeoutException {
-      session.addLog(
-        '[runner] Graceful stop timed out; forcing runtime stop.',
-      );
-      await executionBackend.forceStop(session, process);
-      try {
-        await process.exitCode.timeout(const Duration(seconds: 3));
-      } on TimeoutException {
-        process.kill();
-      }
+    if (flutterProcess != null) {
+      await _stopFlutterProcess(session, flutterProcess);
+    }
+    if (backendProcess != null) {
+      await _stopBackendProcess(session, backendProcess);
     }
 
-    if (session.process == process) {
-      session.process = null;
-    }
+    session.process = null;
+    session.backendProcess = null;
     session.previewUrl = null;
+    session.backendUrl = null;
     session.setStatus('stopped');
   }
 
@@ -246,7 +310,9 @@ class SessionManager {
     } catch (error) {
       session.addLog('[runner] Stop during cleanup failed: $error');
       session.process?.kill();
+      session.backendProcess?.kill();
       session.process = null;
+      session.backendProcess = null;
     }
 
     try {
@@ -255,9 +321,7 @@ class SessionManager {
       session.addLog('[runner] Runtime cleanup failed: $error');
     }
 
-    if (await session.directory.exists()) {
-      await session.directory.delete(recursive: true);
-    }
+    await _deleteSessionDirectory(session);
   }
 
   Future<int> disposeIdleSessions(Duration maxIdle) async {
@@ -276,6 +340,55 @@ class SessionManager {
   Future<void> dispose() async {
     for (final id in _sessions.keys.toList()) {
       await disposeSession(id);
+    }
+  }
+
+  Future<void> _stopFlutterProcess(
+    RunnerSession session,
+    Process process,
+  ) async {
+    session.addLog('[runner] Stopping Flutter process...');
+
+    try {
+      process.stdin.writeln('q');
+      await process.stdin.flush();
+      await process.exitCode.timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      session.addLog(
+        '[runner] Graceful Flutter stop timed out; forcing runtime stop.',
+      );
+      await executionBackend.forceStop(session, process);
+      try {
+        await process.exitCode.timeout(const Duration(seconds: 3));
+      } on TimeoutException {
+        process.kill();
+      }
+    }
+
+    if (session.process == process) {
+      session.process = null;
+    }
+  }
+
+  Future<void> _stopBackendProcess(
+    RunnerSession session,
+    Process process,
+  ) async {
+    session.addLog('[backend] Stopping Dart Frog process...');
+
+    try {
+      await process.exitCode.timeout(const Duration(milliseconds: 100));
+    } on TimeoutException {
+      await executionBackend.forceStop(session, process);
+      try {
+        await process.exitCode.timeout(const Duration(seconds: 3));
+      } on TimeoutException {
+        process.kill();
+      }
+    }
+
+    if (session.backendProcess == process) {
+      session.backendProcess = null;
     }
   }
 
@@ -303,7 +416,22 @@ class SessionManager {
         .listen((line) => session.addLog('[stderr] $line'));
   }
 
-  Future<void> _watchProcessExit(
+  void _listenToBackendOutput(
+    RunnerSession session,
+    Process process,
+  ) {
+    process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) => session.addLog('[backend] $line'));
+
+    process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) => session.addLog('[backend stderr] $line'));
+  }
+
+  Future<void> _watchFlutterExit(
     RunnerSession session,
     Process process,
   ) async {
@@ -314,13 +442,82 @@ class SessionManager {
     session.previewUrl = null;
     session.addLog('[runner] Flutter process exited with code $exitCode.');
 
-    if (session.status == 'stopping' || session.status == 'stopped') {
-      session.setStatus('stopped');
-    } else if (exitCode == 0) {
+    final stopping = session.status == 'stopping' || session.status == 'stopped';
+    if (!stopping) {
+      final backendProcess = session.backendProcess;
+      if (backendProcess != null) {
+        try {
+          await _stopBackendProcess(session, backendProcess);
+        } catch (error) {
+          session.addLog('[backend] Cleanup after Flutter exit failed: $error');
+        }
+        session.backendProcess = null;
+        session.backendUrl = null;
+      }
+    }
+
+    if (stopping || exitCode == 0) {
       session.setStatus('stopped');
     } else {
       session.setStatus('error');
     }
+  }
+
+  Future<void> _watchBackendExit(
+    RunnerSession session,
+    Process process,
+  ) async {
+    final exitCode = await process.exitCode;
+    if (session.backendProcess != process) return;
+
+    session.backendProcess = null;
+    session.backendUrl = null;
+    session.addLog('[backend] Dart Frog process exited with code $exitCode.');
+
+    final stopping = session.status == 'stopping' || session.status == 'stopped';
+    if (stopping) return;
+
+    final flutterProcess = session.process;
+    if (flutterProcess != null) {
+      try {
+        await _stopFlutterProcess(session, flutterProcess);
+      } catch (error) {
+        session.addLog('[runner] Cleanup after backend exit failed: $error');
+      }
+      session.process = null;
+      session.previewUrl = null;
+    }
+    session.setStatus('error');
+  }
+
+  Future<void> _cleanupFailedSession(RunnerSession session) async {
+    _sessions.remove(session.id);
+    try {
+      await executionBackend.disposeSession(session);
+    } catch (cleanupError) {
+      session.addLog('[runner] Runtime rollback failed: $cleanupError');
+    }
+    await _deleteSessionDirectory(session);
+  }
+
+  Future<void> _deleteSessionDirectory(RunnerSession session) async {
+    if (await session.directory.exists()) {
+      await session.directory.delete(recursive: true);
+    }
+  }
+
+  bool _isFullStack(RunnerSession session) {
+    return session.projectType == flutterDartFrogProjectType;
+  }
+
+  String _detectProjectType(Map<String, String> files) {
+    final hasBackendPubspec = files.containsKey('backend/pubspec.yaml');
+    final hasDartFrogRoute = files.keys.any(
+      (path) => path.startsWith('backend/routes/') && path.endsWith('.dart'),
+    );
+    return hasBackendPubspec && hasDartFrogRoute
+        ? flutterDartFrogProjectType
+        : flutterProjectType;
   }
 
   String _absolutePath(RunnerSession session, String relativePath) {

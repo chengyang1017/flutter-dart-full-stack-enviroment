@@ -30,13 +30,16 @@ class RunnerSession {
   String projectType = 'flutter';
   String status = 'creating';
   String? previewUrl;
+  String? backendUrl;
   Process? process;
+  Process? backendProcess;
 
   // Runtime-specific state is intentionally not serialized to clients.
   // Local execution does not need these fields; the Docker backend uses them
-  // for its container id/name and the host port mapped to Flutter web-server.
+  // for its container id/name and host ports mapped to the two dev servers.
   String? runtimeId;
   int? runtimePreviewPort;
+  int? runtimeBackendPort;
 
   final List<RunnerLogEntry> logs = <RunnerLogEntry>[];
   final Set<String> managedFiles = <String>{};
@@ -69,5 +72,6 @@ class RunnerSession {
         'createdAt': createdAt.toUtc().toIso8601String(),
         'lastActivityAt': lastActivityAt.toUtc().toIso8601String(),
         'previewUrl': previewUrl,
+        'backendUrl': backendUrl,
       };
 }

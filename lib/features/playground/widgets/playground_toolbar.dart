@@ -5,6 +5,7 @@ import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../workspace/services/dart_frog_workspace_service.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
 
@@ -29,6 +30,8 @@ class PlaygroundToolbar extends StatelessWidget {
     final density = compact ? VisualDensity.compact : VisualDensity.standard;
     final canExport = controller.workspace.isDirty &&
         supportsWorkspaceExportDownload;
+    const dartFrog = DartFrogWorkspaceService();
+    final dartFrogEnabled = dartFrog.isEnabled(controller.workspace);
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -46,6 +49,23 @@ class PlaygroundToolbar extends StatelessWidget {
                   onPressed: runner.canRun ? (onRun ?? runner.run) : null,
                   icon: const Icon(Icons.play_arrow),
                   label: Text(runner.isMock ? 'Run (Mock)' : 'Run'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('dart-frog-workspace-button'),
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: runner.canRun
+                      ? () {
+                          dartFrog.ensureEnabled(controller.workspace);
+                          controller.selectWorkspaceFile(
+                            DartFrogWorkspaceService.backendRoutePath,
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.api),
+                  label: Text(
+                    dartFrogEnabled ? 'Dart Frog' : '+ Dart Frog',
+                  ),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
