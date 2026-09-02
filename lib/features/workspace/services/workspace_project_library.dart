@@ -1,0 +1,154 @@
+import '../models/workspace_project.dart';
+import 'workspace_project_catalog_store.dart';
+import 'workspace_snapshot_store.dart';
+
+class WorkspaceProjectLibrary {
+  WorkspaceProjectLibrary({
+    required this.catalogStore,
+    required this.snapshotStore,
+  }) {
+    _projects.addAll(catalogStore.loadProjects());
+
+    if (_projects.isEmpty) {
+      final now = DateTime.now().toUtc();
+      _projects.add(
+        WorkspaceProject(
+          id: defaultProjectId,
+          name: 'Flutter Practice',
+          storageKey: defaultStorageKey,
+          kind: WorkspaceProjectKind.practice,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    }
+
+    final storedActive = catalogStore.loadActiveProjectId();
+    _activeProjectId = _projects.any((project) => project.id == storedActive)
+        ? storedActive!
+        : _projects.first.id;
+  }
+
+  static const defaultProjectId = 'default-playground';
+  static const defaultStorageKey = 'default-playground';
+
+  final WorkspaceProjectCatalogStore catalogStore;
+  final WorkspaceSnapshotStore snapshotStore;
+
+  final List<WorkspaceProject> _projects = <WorkspaceProject>[];
+  late String _activeProjectId;
+  int _idCounter = 0;
+
+  List<WorkspaceProject> get projects {
+    final copy = List<WorkspaceProject>.of(_projects)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List.unmodifiable(copy);
+  }
+
+  String get activeProjectId => _activeProjectId;
+
+  WorkspaceProject get activeProject =>
+      _projects.firstWhere((project) => project.id == _activeProjectId);
+
+  WorkspaceProject? projectById(String id) {
+    for (final project in _projects) {
+      if (project.id == id) return project;
+    }
+    return null;
+  }
+
+  Future<WorkspaceProject> createPractice(String name) async {
+    final cleanName = _validateName(name);
+    final now = DateTime.now().toUtc();
+    final id = _newProjectId(now);
+    final project = WorkspaceProject(
+      id: id,
+      name: cleanName,
+      storageKey: 'workspace:$id',
+      kind: WorkspaceProjectKind.practice,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    _projects.add(project);
+    _activeProjectId = project.id;
+    await _persistCatalog();
+    return project;
+  }
+
+  Future<void> selectProject(String id) async {
+    final project = projectById(id);
+    if (project == null) {
+      throw ArgumentError('Workspace project does not exist: $id');
+    }
+
+    _activeProjectId = id;
+    await catalogStore.saveActiveProjectId(id);
+  }
+
+  Future<void> renameProject(String id, String name) async {
+    final index = _projects.indexWhere((project) => project.id == id);
+    if (index == -1) {
+      throw ArgumentError('Workspace project does not exist: $id');
+    }
+
+    final now = DateTime.now().toUtc();
+    _projects[index] = _projects[index].copyWith(
+      name: _validateName(name),
+      updatedAt: now,
+    );
+    await catalogStore.saveProjects(projects);
+  }
+
+  Future<void> touchProject(String id) async {
+    final index = _projects.indexWhere((project) => project.id == id);
+    if (index == -1) return;
+    _projects[index] = _projects[index].copyWith(
+      updatedAt: DateTime.now().toUtc(),
+    );
+    await catalogStore.saveProjects(projects);
+  }
+
+  Future<String?> deleteProject(String id) async {
+    if (_projects.length <= 1) {
+      throw StateError('At least one local Workspace must remain.');
+    }
+
+    final index = _projects.indexWhere((project) => project.id == id);
+    if (index == -1) return null;
+    final removed = _projects[index];
+
+    await snapshotStore.delete(removed.storageKey);
+    _projects.removeAt(index);
+
+    String? nextActive;
+    if (_activeProjectId == id) {
+      _activeProjectId = projects.first.id;
+      nextActive = _activeProjectId;
+    }
+
+    await _persistCatalog();
+    return nextActive;
+  }
+
+  Future<void> _persistCatalog() async {
+    await catalogStore.saveProjects(projects);
+    await catalogStore.saveActiveProjectId(_activeProjectId);
+  }
+
+  String _validateName(String value) {
+    final clean = value.trim();
+    if (clean.isEmpty) {
+      throw ArgumentError('Workspace name cannot be empty.');
+    }
+    if (clean.length > 80) {
+      throw ArgumentError('Workspace name must be 80 characters or fewer.');
+    }
+    return clean;
+  }
+
+  String _newProjectId(DateTime now) {
+    _idCounter += 1;
+    return 'local-${now.microsecondsSinceEpoch}-$_idCounter';
+  }
+}
