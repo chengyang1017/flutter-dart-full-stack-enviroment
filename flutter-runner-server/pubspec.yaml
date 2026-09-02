@@ -1,0 +1,10 @@
+name: flutter_practice_runner_server
+description: Local real Flutter SDK runner for flutter_learining.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.4.0
+
+dev_dependencies:
+  lints: ^5.0.0
