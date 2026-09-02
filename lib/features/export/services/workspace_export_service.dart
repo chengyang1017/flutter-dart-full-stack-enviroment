@@ -48,11 +48,7 @@ class WorkspaceExportService {
       _addTextFile(archive, path, entry.content);
     }
 
-    final encoded = ZipEncoder().encode(archive);
-    if (encoded == null) {
-      throw StateError('Failed to encode workspace export archive.');
-    }
-
+    final encoded = ZipEncoder().encodeBytes(archive);
     final stamp = manifest.exportedAt
         .toUtc()
         .toIso8601String()
