@@ -29,10 +29,13 @@ class WorkspaceExportService {
     }
 
     final payloadFiles = changedPayloadPaths.toList()..sort();
+    final projectType = _projectType(workspace);
     final manifest = ExportManifest(
       exportedAt: exportedAt ?? DateTime.now(),
       changes: changes,
       payloadFiles: payloadFiles,
+      projectType: projectType,
+      template: 'flutter-playground',
     );
 
     final archive = Archive();
@@ -62,10 +65,29 @@ class WorkspaceExportService {
     );
   }
 
+  String _projectType(WorkspaceController workspace) {
+    final hasServerpod = workspace.entryAt(
+              'serverpod/practice_server/config/generator.yaml',
+            )
+            ?.isFile ==
+        true;
+    if (hasServerpod) return 'flutter-serverpod-mini';
+
+    final hasDartFrog =
+        workspace.entryAt('backend/pubspec.yaml')?.isFile == true &&
+            workspace.entries.any(
+              (entry) =>
+                  entry.isFile &&
+                  entry.path.startsWith('backend/routes/') &&
+                  entry.path.endsWith('.dart'),
+            );
+    if (hasDartFrog) return 'flutter-dart-frog';
+
+    return 'flutter';
+  }
+
   void _addTextFile(Archive archive, String path, String content) {
     final bytes = utf8.encode(content);
-    archive.addFile(
-      ArchiveFile(path, bytes.length, bytes),
-    );
+    archive.addFile(ArchiveFile(path, bytes.length, bytes));
   }
 }

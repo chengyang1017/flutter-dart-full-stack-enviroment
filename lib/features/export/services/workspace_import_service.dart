@@ -225,7 +225,13 @@ class WorkspaceImportService {
         'Unsupported workspace package version: ${manifest.formatVersion}',
       );
     }
-    if (manifest.projectType != 'flutter' ||
+
+    const supportedProjectTypes = <String>{
+      'flutter',
+      'flutter-dart-frog',
+      'flutter-serverpod-mini',
+    };
+    if (!supportedProjectTypes.contains(manifest.projectType) ||
         manifest.template != 'flutter-playground') {
       throw const FormatException(
         'This package is not a Flutter playground workspace.',

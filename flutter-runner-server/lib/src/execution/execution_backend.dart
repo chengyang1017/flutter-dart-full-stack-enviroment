@@ -30,6 +30,12 @@ abstract interface class RunnerExecutionBackend {
     String workingDirectory = 'backend',
   });
 
+  Future<int> runServerpodCommand(
+    RunnerSession session,
+    List<String> arguments, {
+    String workingDirectory = 'serverpod/practice_server',
+  });
+
   Future<void> syncWorkspace(
     RunnerSession session, {
     required Set<String> removedPaths,
@@ -43,6 +49,11 @@ abstract interface class RunnerExecutionBackend {
   Future<RunnerProcessLaunch> startDartFrog(
     RunnerSession session,
   );
+
+  Future<RunnerProcessLaunch> startServerpod(
+    RunnerSession session, {
+    String workingDirectory = 'serverpod/practice_server',
+  });
 
   Future<void> forceStop(
     RunnerSession session,
