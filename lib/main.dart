@@ -7,5 +7,6 @@ Future<void> main() async {
   await Hive.initFlutter();
   await Hive.openBox<dynamic>('lesson_progress');
   await Hive.openBox<dynamic>('workspace_snapshots');
+  await Hive.openBox<dynamic>('workspace_library');
   runApp(const PlaygroundApp());
 }

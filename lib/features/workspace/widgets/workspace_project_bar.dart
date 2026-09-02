@@ -1,0 +1,106 @@
+import 'package:flutter/material.dart';
+
+import '../models/workspace_project.dart';
+
+class WorkspaceProjectBar extends StatelessWidget {
+  const WorkspaceProjectBar({
+    super.key,
+    required this.projects,
+    required this.activeProject,
+    required this.onSelect,
+    required this.onCreate,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final List<WorkspaceProject> projects;
+  final WorkspaceProject activeProject;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onCreate;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: SizedBox(
+        height: 44,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final showStatus = constraints.maxWidth >= 620;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.folder_copy_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        key: const ValueKey('workspace-project-selector'),
+                        value: activeProject.id,
+                        isExpanded: true,
+                        onChanged: (value) {
+                          if (value != null && value != activeProject.id) {
+                            onSelect(value);
+                          }
+                        },
+                        items: projects
+                            .map(
+                              (project) => DropdownMenuItem<String>(
+                                value: project.id,
+                                child: Text(
+                                  project.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const ValueKey('workspace-project-create'),
+                    tooltip: '新建练习',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onCreate,
+                    icon: const Icon(Icons.add, size: 19),
+                  ),
+                  IconButton(
+                    key: const ValueKey('workspace-project-rename'),
+                    tooltip: '重命名当前练习',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onRename,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                  ),
+                  IconButton(
+                    key: const ValueKey('workspace-project-delete'),
+                    tooltip: '删除当前本地练习',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: projects.length > 1 ? onDelete : null,
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                  ),
+                  if (showStatus) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        activeProject.kind == WorkspaceProjectKind.importedFlutter
+                            ? '已导入 Flutter 项目 · 浏览器本地保存'
+                            : '浏览器本地练习 · 自动保存',
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
