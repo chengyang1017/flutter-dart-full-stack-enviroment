@@ -14,9 +14,10 @@ class LessonController extends ChangeNotifier {
   LessonController({
     required this.lesson,
     required this.store,
-    required this.answerRepository,
+    AuthorAnswerRepository? answerRepository,
     LessonChecker? checker,
-  })  : checker = checker ?? LessonChecker(),
+  })  : answerRepository = answerRepository ?? AuthorAnswerRepository(),
+        checker = checker ?? LessonChecker(),
         playground = PlaygroundController() {
     playground.addListener(_relay);
     _restore();
