@@ -52,6 +52,7 @@ class SessionManager {
         flutterExecutable,
         const [
           'create',
+          '--no-pub',
           '--platforms=web',
           '--project-name=flutter_practice',
           '.',
@@ -236,6 +237,19 @@ class SessionManager {
     }
   }
 
+  Future<int> disposeIdleSessions(Duration maxIdle) async {
+    final cutoff = DateTime.now().toUtc().subtract(maxIdle);
+    final idleIds = _sessions.values
+        .where((session) => session.lastActivityAt.isBefore(cutoff))
+        .map((session) => session.id)
+        .toList(growable: false);
+
+    for (final id in idleIds) {
+      await disposeSession(id);
+    }
+    return idleIds.length;
+  }
+
   Future<void> dispose() async {
     for (final id in _sessions.keys.toList()) {
       await disposeSession(id);
@@ -279,7 +293,8 @@ class SessionManager {
       if (session.process == process &&
           session.status == 'starting' &&
           (line.contains('is being served at') ||
-              line.contains('Flutter run key commands'))) {
+              line.contains('Flutter run key commands') ||
+              line.contains('A Dart VM Service'))) {
         session.setStatus('running');
       }
     });
