@@ -8,6 +8,14 @@ Future<void> main() async {
   final port = int.tryParse(environment['PORT'] ?? '') ?? 8090;
   final host = environment['HOST'] ?? '0.0.0.0';
   final storageRoot = environment['WORKSPACE_STORAGE_ROOT'] ?? '.workspace-storage';
+  final temporaryTtlHours =
+      int.tryParse(environment['TEMPORARY_WORKSPACE_TTL_HOURS'] ?? '') ?? 168;
+  if (temporaryTtlHours <= 0) {
+    stderr.writeln('TEMPORARY_WORKSPACE_TTL_HOURS must be greater than zero.');
+    exitCode = 64;
+    return;
+  }
+
   final authTokens = environment['WORKSPACE_AUTH_TOKENS'];
   if (authTokens == null || authTokens.trim().isEmpty) {
     stderr.writeln(
@@ -20,7 +28,10 @@ Future<void> main() async {
 
   final authenticator = StaticBearerWorkspaceAuthenticator.fromJson(authTokens);
   final handler = WorkspaceStorageHttpServer(
-    store: FileWorkspaceStore(Directory(storageRoot)),
+    store: FileWorkspaceStore(
+      Directory(storageRoot),
+      temporaryWorkspaceTtl: Duration(hours: temporaryTtlHours),
+    ),
     authenticator: authenticator,
     allowedOrigin: environment['ALLOWED_ORIGIN'] ?? '*',
   );
@@ -30,6 +41,7 @@ Future<void> main() async {
     'Workspace storage listening on http://${server.address.address}:${server.port}',
   );
   stdout.writeln('Storage root: ${Directory(storageRoot).absolute.path}');
+  stdout.writeln('Temporary Workspace TTL: $temporaryTtlHours hours');
 
   final subscriptions = <StreamSubscription<ProcessSignal>>[];
   Future<void> shutdown(ProcessSignal signal) async {

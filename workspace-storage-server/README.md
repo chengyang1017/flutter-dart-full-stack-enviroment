@@ -36,6 +36,23 @@ All `/workspaces` routes require `Authorization: Bearer <token>`.
 
 The client never supplies an `ownerId`. Ownership comes from the authenticated server session. Saves and deletes use opaque revisions for optimistic concurrency; stale writes return HTTP 409 with `code: revision_conflict`.
 
+## Temporary and saved Workspace lifecycle
+
+Workspace lifecycle is metadata, not a separate Practice/Project data model.
+
+- `temporary` Workspaces are eligible for automatic cleanup after inactivity.
+- `saved` Workspaces are never removed by the temporary cleanup policy.
+- `updatedAt` is the activity timestamp used by the storage cleanup policy.
+- Catalog loading performs cleanup before returning the user's visible Workspace list.
+
+The default temporary retention period is **168 hours (7 days)**. Deployments can change it without changing the Workspace model:
+
+```bash
+export TEMPORARY_WORKSPACE_TTL_HOURS=168
+```
+
+The value must be greater than zero. A client that performs **Keep / Save** persists the same Workspace again with `lifecycle: saved`; it does not convert it into another project type.
+
 ## Persistence
 
 The first implementation writes per-user catalogs and Workspace documents under `WORKSPACE_STORAGE_ROOT`. In deployment that directory must be mounted on durable storage. The storage boundary is deliberately isolated so a later PostgreSQL/object-storage implementation can replace the filesystem store without changing the Flutter Workspace contract.

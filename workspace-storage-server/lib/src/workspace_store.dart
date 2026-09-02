@@ -29,13 +29,30 @@ class WorkspaceDocumentNotFound implements Exception {
 }
 
 class FileWorkspaceStore {
-  FileWorkspaceStore(this.root);
+  FileWorkspaceStore(
+    this.root, {
+    this.temporaryWorkspaceTtl = const Duration(days: 7),
+    DateTime Function()? clock,
+  }) : _clock = clock ?? _utcNow {
+    if (temporaryWorkspaceTtl <= Duration.zero) {
+      throw ArgumentError.value(
+        temporaryWorkspaceTtl,
+        'temporaryWorkspaceTtl',
+        'Temporary Workspace TTL must be greater than zero.',
+      );
+    }
+  }
 
   final Directory root;
+  final Duration temporaryWorkspaceTtl;
+  final DateTime Function() _clock;
   final Map<String, Future<void>> _userLocks = <String, Future<void>>{};
 
   Future<Map<String, dynamic>> loadCatalog(String userId) {
-    return _serialized(userId, () => _readCatalog(userId));
+    return _serialized(userId, () async {
+      final catalog = await _readCatalog(userId);
+      return _purgeExpiredTemporaryWorkspaces(userId, catalog);
+    });
   }
 
   Future<Map<String, dynamic>?> loadWorkspace(
@@ -159,10 +176,7 @@ class FileWorkspaceStore {
         );
       }
 
-      final file = _documentFile(userId, workspaceId);
-      if (await file.exists()) {
-        await file.delete();
-      }
+      await _deleteDocument(userId, workspaceId);
 
       final catalog = await _readCatalog(userId);
       final projects = _readProjects(catalog)
@@ -174,6 +188,45 @@ class FileWorkspaceStore {
       await _writeCatalog(userId, next);
       return next;
     });
+  }
+
+  Future<Map<String, dynamic>> _purgeExpiredTemporaryWorkspaces(
+    String userId,
+    Map<String, dynamic> catalog,
+  ) async {
+    final projects = _readProjects(catalog);
+    final expiredIds = <String>[];
+    final now = _clock().toUtc();
+
+    for (final project in projects) {
+      if (project['lifecycle'] != 'temporary') continue;
+
+      final workspaceId = project['id'];
+      final updatedAtSource = project['updatedAt'];
+      if (workspaceId is! String || workspaceId.isEmpty) continue;
+      if (updatedAtSource is! String) continue;
+
+      final updatedAt = DateTime.tryParse(updatedAtSource)?.toUtc();
+      if (updatedAt == null) continue;
+      final expiresAt = updatedAt.add(temporaryWorkspaceTtl);
+      if (!expiresAt.isAfter(now)) {
+        expiredIds.add(workspaceId);
+      }
+    }
+
+    if (expiredIds.isEmpty) return catalog;
+
+    for (final workspaceId in expiredIds) {
+      await _deleteDocument(userId, workspaceId);
+    }
+    projects.removeWhere((project) => expiredIds.contains(project['id']));
+
+    final next = <String, dynamic>{
+      'projects': projects,
+      'revision': _nextRevision(catalog['revision'], 'c'),
+    };
+    await _writeCatalog(userId, next);
+    return next;
   }
 
   Future<T> _serialized<T>(
@@ -274,6 +327,13 @@ class FileWorkspaceStore {
     return _writeJson(_documentFile(userId, workspaceId), document);
   }
 
+  Future<void> _deleteDocument(String userId, String workspaceId) async {
+    final file = _documentFile(userId, workspaceId);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
   Future<void> _writeJson(File file, Map<String, dynamic> value) async {
     await file.parent.create(recursive: true);
     final temp = File('${file.path}.tmp');
@@ -297,3 +357,5 @@ class FileWorkspaceStore {
   String _key(String value) =>
       base64Url.encode(utf8.encode(value)).replaceAll('=', '');
 }
+
+DateTime _utcNow() => DateTime.now().toUtc();
