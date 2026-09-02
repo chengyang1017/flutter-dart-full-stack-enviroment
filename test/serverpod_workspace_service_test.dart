@@ -34,6 +34,13 @@ const englishName = 'Glyphora';
       contains('serverpod_client: 3.4.13'),
     );
     expect(
+      workspace.entryAt(ServerpodWorkspaceService.clientLibraryPath)!.content,
+      allOf(
+        contains("export 'src/protocol/protocol.dart';"),
+        contains("export 'package:serverpod_client/serverpod_client.dart';"),
+      ),
+    );
+    expect(
       workspace.entryAt(ServerpodWorkspaceService.generatorConfigPath)!.content,
       contains('client_package_path: ../practice_client'),
     );
@@ -108,6 +115,10 @@ const englishName = 'Glyphora';
       bundle.manifest.payloadFiles,
       contains(ServerpodWorkspaceService.greetingEndpointPath),
     );
+    expect(
+      bundle.manifest.payloadFiles,
+      contains(ServerpodWorkspaceService.clientLibraryPath),
+    );
 
     final imported = const WorkspaceImportService().apply(bundle.bytes, target);
 
@@ -116,6 +127,10 @@ const englishName = 'Glyphora';
     expect(
       target.entryAt(ServerpodWorkspaceService.greetingEndpointPath)?.content,
       contains('class GreetingEndpoint extends Endpoint'),
+    );
+    expect(
+      target.entryAt(ServerpodWorkspaceService.clientLibraryPath)?.content,
+      contains("export 'src/protocol/protocol.dart';"),
     );
     expect(
       target.entryAt('pubspec.yaml')?.content,
