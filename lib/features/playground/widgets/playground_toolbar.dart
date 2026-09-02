@@ -4,6 +4,7 @@ import '../../export/services/workspace_export_download.dart';
 import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
+import '../../runner/controllers/flutter_runner_controller.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
 
@@ -11,13 +12,15 @@ class PlaygroundToolbar extends StatelessWidget {
   const PlaygroundToolbar({
     super.key,
     required this.controller,
+    required this.runner,
     this.compact = false,
-    this.onRun,
+    this.onQuickPreview,
   });
 
   final PlaygroundController controller;
+  final FlutterRunnerController runner;
   final bool compact;
-  final VoidCallback? onRun;
+  final VoidCallback? onQuickPreview;
 
   @override
   Widget build(BuildContext context) {
@@ -38,11 +41,39 @@ class PlaygroundToolbar extends StatelessWidget {
               children: [
                 FilledButton.icon(
                   style: FilledButton.styleFrom(visualDensity: density),
-                  onPressed: onRun ?? controller.runCode,
+                  onPressed: runner.canRun ? runner.run : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: Text(runner.isMock ? 'Run (Mock)' : 'Run'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: onQuickPreview ?? controller.runCode,
                   icon: const Icon(Icons.bolt),
                   label: const Text('快速预览'),
                 ),
                 const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: runner.canHotReload ? runner.hotReload : null,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Hot Reload'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: runner.canHotRestart ? runner.hotRestart : null,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Hot Restart'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: runner.canStop ? runner.stop : null,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
+                ),
+                const SizedBox(width: 12),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(visualDensity: density),
                   onPressed: supportsWorkspaceImportPicker
