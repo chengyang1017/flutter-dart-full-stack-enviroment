@@ -32,7 +32,32 @@ class PlaygroundController extends ChangeNotifier {
     runCode();
   }
 
-  static const exampleCode = """Container(
+  static const _quickPreviewStart = '// QUICK_PREVIEW_START';
+  static const _quickPreviewEnd = '// QUICK_PREVIEW_END';
+
+  static const exampleCode = """import 'package:flutter/material.dart';
+
+void main() {
+  runApp(
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: PracticeExample(),
+        ),
+      ),
+    ),
+  );
+}
+
+class PracticeExample extends StatelessWidget {
+  const PracticeExample({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return
+// QUICK_PREVIEW_START
+Container(
     color: Colors.white,
     padding: EdgeInsets.all(24),
     child: Column(
@@ -68,7 +93,12 @@ class PlaygroundController extends ChangeNotifier {
             ),
         ],
     ),
-)""";
+)
+// QUICK_PREVIEW_END
+    ;
+  }
+}
+""";
 
   late final CodeLineEditingController textController;
   late final WorkspaceController workspace;
@@ -157,7 +187,7 @@ class PlaygroundController extends ChangeNotifier {
     }
 
     try {
-      root = _parser.parse(code);
+      root = _parser.parse(_quickPreviewSource(code));
     } catch (exception) {
       root = null;
       error = exception.toString();
@@ -165,6 +195,19 @@ class PlaygroundController extends ChangeNotifier {
 
     isParsing = false;
     notifyListeners();
+  }
+
+  String _quickPreviewSource(String source) {
+    final start = source.indexOf(_quickPreviewStart);
+    final end = source.indexOf(_quickPreviewEnd);
+    if (start == -1 || end == -1 || end <= start) {
+      return source;
+    }
+
+    return source.substring(
+      start + _quickPreviewStart.length,
+      end,
+    ).trim();
   }
 
   void clearCode() {
