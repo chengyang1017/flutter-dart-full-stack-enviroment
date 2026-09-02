@@ -70,6 +70,7 @@ class RunnerServer {
 
       if (segments.length == 2 && request.method == 'GET') {
         final session = manager.requireSession(sessionId);
+        session.touch();
         final afterLog = int.tryParse(
               request.uri.queryParameters['afterLog'] ?? '0',
             ) ??
