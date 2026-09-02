@@ -1,5 +1,6 @@
 import '../models/workspace_project.dart';
 import '../models/workspace_snapshot.dart';
+import 'workspace_persistence.dart';
 import 'workspace_project_catalog_store.dart';
 import 'workspace_snapshot_store.dart';
 
@@ -30,6 +31,12 @@ class WorkspaceProjectLibrary {
         ? storedActive!
         : _projects.first.id;
   }
+
+  WorkspaceProjectLibrary.fromPersistence(WorkspacePersistence persistence)
+      : this(
+          catalogStore: persistence.catalogStore,
+          snapshotStore: persistence.snapshotStore,
+        );
 
   static const defaultProjectId = 'default-playground';
   static const defaultStorageKey = 'default-playground';
