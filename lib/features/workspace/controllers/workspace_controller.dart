@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/workspace_change.dart';
@@ -58,6 +60,7 @@ class WorkspaceController extends ChangeNotifier {
   final Map<String, WorkspaceEntry> _entries;
   final List<String> _openFiles;
 
+  Timer? _contentNotificationDebounce;
   int _nextId = 1;
   String activePath;
 
@@ -192,12 +195,27 @@ class WorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Programmatic file updates notify immediately.
   void updateFileContent(String path, String content) {
-    final entry = entryAt(path);
-    if (entry == null || !entry.isFile || entry.content == content) return;
-
-    _entries[entry.id] = entry.copyWith(content: content);
+    if (!_replaceFileContent(path, content)) return;
+    _contentNotificationDebounce?.cancel();
     notifyListeners();
+  }
+
+  /// Editor keystrokes update the model immediately but delay UI metadata
+  /// notifications slightly. This keeps dirty state/export data correct without
+  /// rebuilding the surrounding workspace tree for every single character.
+  void updateFileContentFromEditor(String path, String content) {
+    if (!_replaceFileContent(path, content)) return;
+
+    _contentNotificationDebounce?.cancel();
+    _contentNotificationDebounce = Timer(
+      const Duration(milliseconds: 180),
+      () {
+        _contentNotificationDebounce = null;
+        notifyListeners();
+      },
+    );
   }
 
   String createFile(String parentPath, String name, {String content = ''}) {
@@ -338,6 +356,16 @@ class WorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _replaceFileContent(String path, String content) {
+    final entry = entryAt(path);
+    if (entry == null || !entry.isFile || entry.content == content) {
+      return false;
+    }
+
+    _entries[entry.id] = entry.copyWith(content: content);
+    return true;
+  }
+
   void _movePath(String source, String target) {
     if (source == target) return;
     _validatePath(target);
@@ -412,5 +440,11 @@ class WorkspaceController extends ChangeNotifier {
       throw ArgumentError('Name must be a single path segment.');
     }
     return parent.isEmpty ? cleanName : '$parent/$cleanName';
+  }
+
+  @override
+  void dispose() {
+    _contentNotificationDebounce?.cancel();
+    super.dispose();
   }
 }
