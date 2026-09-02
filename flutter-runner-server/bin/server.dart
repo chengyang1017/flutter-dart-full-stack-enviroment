@@ -97,6 +97,8 @@ RunnerExecutionBackend _createExecutionBackend(
         dartExecutable: environment['DART_EXECUTABLE'] ?? 'dart',
         dartFrogExecutable:
             environment['DART_FROG_EXECUTABLE'] ?? 'dart_frog',
+        serverpodExecutable:
+            environment['SERVERPOD_EXECUTABLE'] ?? 'serverpod',
       );
     case 'docker':
       return DockerExecutionBackend(
@@ -109,6 +111,8 @@ RunnerExecutionBackend _createExecutionBackend(
             environment['RUNNER_CONTAINER_DART_EXECUTABLE'] ?? 'dart',
         dartFrogExecutable:
             environment['RUNNER_CONTAINER_DART_FROG_EXECUTABLE'] ?? 'dart_frog',
+        serverpodExecutable:
+            environment['RUNNER_CONTAINER_SERVERPOD_EXECUTABLE'] ?? 'serverpod',
         memoryLimit: environment['RUNNER_DOCKER_MEMORY'] ?? '1024m',
         cpuLimit: environment['RUNNER_DOCKER_CPUS'] ?? '1.0',
         pidsLimit: int.tryParse(
