@@ -24,6 +24,10 @@ class RunnerPreviewPanel extends StatelessWidget {
         previewUrl != null &&
         runner.status == RunnerStatus.running;
     final target = runner.previewTarget;
+    final dimensions = target.viewportDimensionsFor(runner.previewOrientation);
+    final targetSummary = target.opensExternalTab
+        ? target.label
+        : '${target.label}视口 · $dimensions · ${runner.previewOrientation.label}';
 
     return Column(
       children: [
@@ -44,8 +48,8 @@ class RunnerPreviewPanel extends StatelessWidget {
                 Expanded(
                   child: Text(
                     showRealPreview
-                        ? '真实 Flutter SDK · ${target.label} · ${runner.status.label}'
-                        : '真实 Runner · ${target.label} · ${runner.status.label} · 等待 Preview 就绪',
+                        ? '真实 Flutter SDK · $targetSummary · ${runner.status.label}'
+                        : '真实 Runner · $targetSummary · ${runner.status.label} · 等待 Preview 就绪',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -61,6 +65,8 @@ class RunnerPreviewPanel extends StatelessWidget {
                   : _EmbeddedDevicePreview(
                       url: previewUrl,
                       target: target,
+                      orientation: runner.previewOrientation,
+                      onOrientationChanged: runner.selectPreviewOrientation,
                     )
               : PreviewPanel(controller: playground),
         ),
@@ -69,49 +75,126 @@ class RunnerPreviewPanel extends StatelessWidget {
   }
 }
 
+class RunnerViewportControls extends StatelessWidget {
+  const RunnerViewportControls({
+    super.key,
+    required this.target,
+    required this.orientation,
+    required this.onOrientationChanged,
+  });
+
+  final RunnerPreviewTarget target;
+  final RunnerPreviewOrientation orientation;
+  final ValueChanged<RunnerPreviewOrientation> onOrientationChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final dimensions = target.viewportDimensionsFor(orientation)!;
+    final icon = target == RunnerPreviewTarget.phone
+        ? Icons.phone_android
+        : Icons.tablet_mac_outlined;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Row(
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${target.label}视口 · $dimensions',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          const SizedBox(width: 8),
+          SegmentedButton<RunnerPreviewOrientation>(
+            key: const ValueKey('real-run-orientation-selector'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: RunnerPreviewOrientation.portrait,
+                icon: Icon(Icons.stay_current_portrait, size: 16),
+                label: Text('竖屏'),
+              ),
+              ButtonSegment(
+                value: RunnerPreviewOrientation.landscape,
+                icon: Icon(Icons.stay_current_landscape, size: 16),
+                label: Text('横屏'),
+              ),
+            ],
+            selected: {orientation},
+            onSelectionChanged: (selection) {
+              onOrientationChanged(selection.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmbeddedDevicePreview extends StatelessWidget {
   const _EmbeddedDevicePreview({
     required this.url,
     required this.target,
+    required this.orientation,
+    required this.onOrientationChanged,
   });
 
   final String url;
   final RunnerPreviewTarget target;
+  final RunnerPreviewOrientation orientation;
+  final ValueChanged<RunnerPreviewOrientation> onOrientationChanged;
 
   @override
   Widget build(BuildContext context) {
-    final width = target.viewportWidth!;
-    final height = target.viewportHeight!;
+    final width = target.viewportWidthFor(orientation)!;
+    final height = target.viewportHeightFor(orientation)!;
     final radius = target == RunnerPreviewTarget.phone ? 28.0 : 20.0;
 
     return ColoredBox(
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FittedBox(
-            key: const ValueKey('real-run-device-fitted-box'),
-            fit: BoxFit.contain,
-            child: SizedBox(
-              key: const ValueKey('real-run-device-viewport'),
-              width: width,
-              height: height,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 2,
+      child: Column(
+        children: [
+          RunnerViewportControls(
+            target: target,
+            orientation: orientation,
+            onOrientationChanged: onOrientationChanged,
+          ),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: FittedBox(
+                  key: const ValueKey('real-run-device-fitted-box'),
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    key: const ValueKey('real-run-device-viewport'),
+                    width: width,
+                    height: height,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(radius),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(radius - 2),
+                        child: buildRunnerPreviewHost(url),
+                      ),
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(radius),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(radius - 2),
-                  child: buildRunnerPreviewHost(url),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

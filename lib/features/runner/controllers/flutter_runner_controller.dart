@@ -20,6 +20,7 @@ class FlutterRunnerController extends ChangeNotifier {
   RunSession? session;
   RunnerStatus status = RunnerStatus.idle;
   RunnerPreviewTarget previewTarget = RunnerPreviewTarget.phone;
+  RunnerPreviewOrientation previewOrientation = RunnerPreviewOrientation.portrait;
   final List<String> logs = [];
 
   StreamSubscription<RunnerEvent>? _eventsSubscription;
@@ -49,6 +50,15 @@ class FlutterRunnerController extends ChangeNotifier {
   void selectPreviewTarget(RunnerPreviewTarget target) {
     if (previewTarget == target) return;
     previewTarget = target;
+    previewOrientation = RunnerPreviewOrientation.portrait;
+    notifyListeners();
+  }
+
+  void selectPreviewOrientation(RunnerPreviewOrientation orientation) {
+    if (!previewTarget.supportsOrientation || previewOrientation == orientation) {
+      return;
+    }
+    previewOrientation = orientation;
     notifyListeners();
   }
 
