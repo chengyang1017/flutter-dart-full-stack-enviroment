@@ -1,4 +1,5 @@
 import '../models/workspace_project.dart';
+import '../models/workspace_snapshot.dart';
 import 'workspace_project_catalog_store.dart';
 import 'workspace_snapshot_store.dart';
 
@@ -73,6 +74,39 @@ class WorkspaceProjectLibrary {
     _projects.add(project);
     _activeProjectId = project.id;
     await _persistCatalog();
+    return project;
+  }
+
+  Future<WorkspaceProject> createImportedFlutter({
+    required String name,
+    required WorkspaceSnapshot snapshot,
+  }) async {
+    final cleanName = _validateName(name);
+    final now = DateTime.now().toUtc();
+    final id = _newProjectId(now);
+    final project = WorkspaceProject(
+      id: id,
+      name: cleanName,
+      storageKey: 'workspace:$id',
+      kind: WorkspaceProjectKind.importedFlutter,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await snapshotStore.save(project.storageKey, snapshot);
+    final previousActive = _activeProjectId;
+    _projects.add(project);
+    _activeProjectId = project.id;
+
+    try {
+      await _persistCatalog();
+    } catch (_) {
+      _projects.removeWhere((item) => item.id == project.id);
+      _activeProjectId = previousActive;
+      await snapshotStore.delete(project.storageKey);
+      rethrow;
+    }
+
     return project;
   }
 
