@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../runner_session.dart';
+import 'docker_postgres_sidecar.dart';
 import 'execution_backend.dart';
 
 class DockerExecutionBackend implements RunnerExecutionBackend {
@@ -21,7 +22,9 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     this.containerWebPort = 8080,
     this.containerBackendPort = 8081,
     this.containerBackendVmServicePort = 8181,
-  });
+    DockerPostgresSidecar? postgresSidecar,
+  }) : postgresSidecar = postgresSidecar ??
+            DockerPostgresSidecar(dockerExecutable: dockerExecutable);
 
   final String dockerExecutable;
   final String image;
@@ -37,6 +40,7 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
   final int containerWebPort;
   final int containerBackendPort;
   final int containerBackendVmServicePort;
+  final DockerPostgresSidecar postgresSidecar;
 
   @override
   String get name => 'docker';
@@ -302,6 +306,19 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
   }) async {
     final container = _requireContainer(session);
     final backendPort = _requireBackendPort(session);
+
+    final usesDatabase = await postgresSidecar.workspaceUsesDatabase(
+      session,
+      workingDirectory: workingDirectory,
+    );
+    if (usesDatabase) {
+      session.addLog(
+        '[database] Persisted Serverpod model detected; preparing PostgreSQL.',
+      );
+      await postgresSidecar.prepare(session);
+    }
+    final databaseEnvironment = postgresSidecar.serverpodEnvironment(session);
+
     final process = await Process.start(
       dockerExecutable,
       [
@@ -317,6 +334,10 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
         'SERVERPOD_API_SERVER_PUBLIC_HOST=localhost',
         '--env',
         'SERVERPOD_API_SERVER_PUBLIC_SCHEME=http',
+        for (final entry in databaseEnvironment.entries) ...[
+          '--env',
+          '${entry.key}=${entry.value}',
+        ],
         container,
         dartExecutable,
         'bin/main.dart',
@@ -329,9 +350,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     return RunnerProcessLaunch(
       process: process,
       previewPort: backendPort,
-      description:
-          'docker exec $container dart bin/main.dart --mode development '
-          '(host port $backendPort)',
+      description: usesDatabase
+          ? 'docker exec $container dart bin/main.dart --mode development '
+              '(host port $backendPort, PostgreSQL sidecar)'
+          : 'docker exec $container dart bin/main.dart --mode development '
+              '(host port $backendPort)',
     );
   }
 
@@ -366,6 +389,8 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
 
   @override
   Future<void> disposeSession(RunnerSession session) async {
+    await postgresSidecar.dispose(session);
+
     final container = session.runtimeId;
     if (container == null) return;
 

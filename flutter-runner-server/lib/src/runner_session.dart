@@ -41,6 +41,12 @@ class RunnerSession {
   int? runtimePreviewPort;
   int? runtimeBackendPort;
 
+  // Database runtime state is also private to the runner. A Serverpod session
+  // only receives these values when its workspace contains a persisted model.
+  String? runtimeNetworkId;
+  String? databaseRuntimeId;
+  String? databasePassword;
+
   final List<RunnerLogEntry> logs = <RunnerLogEntry>[];
   final Set<String> managedFiles = <String>{};
 
