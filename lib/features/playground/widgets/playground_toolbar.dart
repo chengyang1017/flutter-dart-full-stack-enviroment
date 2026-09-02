@@ -32,8 +32,8 @@ class PlaygroundToolbar extends StatelessWidget {
                 FilledButton.icon(
                   style: FilledButton.styleFrom(visualDensity: density),
                   onPressed: onRun ?? controller.runCode,
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('运行'),
+                  icon: const Icon(Icons.bolt),
+                  label: const Text('快速预览'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -50,7 +50,7 @@ class PlaygroundToolbar extends StatelessWidget {
                   label: const Text('恢复示例'),
                 ),
                 const SizedBox(width: 12),
-                const Text('自动运行'),
+                const Text('自动预览'),
                 const SizedBox(width: 4),
                 Switch(
                   value: controller.autoRun,
@@ -88,7 +88,7 @@ class PlaygroundToolbar extends StatelessWidget {
                   ],
                 ),
                 IconButton(
-                  tooltip: '支持的组件',
+                  tooltip: 'Quick Preview 支持的组件',
                   onPressed: () => showDialog<void>(
                     context: context,
                     builder: (_) => const SupportedWidgetsDialog(),
