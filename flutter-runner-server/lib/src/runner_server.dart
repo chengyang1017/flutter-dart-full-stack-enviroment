@@ -74,7 +74,7 @@ class RunnerServer {
               request.uri.queryParameters['afterLog'] ?? '0',
             ) ??
             0;
-        final safeCursor = afterLog.clamp(0, session.logs.length);
+        final safeCursor = afterLog.clamp(0, session.logs.length).toInt();
         final logs = session.logs
             .skip(safeCursor)
             .map((entry) => entry.toJson())
@@ -151,13 +151,13 @@ class RunnerServer {
       await _sendError(
         request.response,
         HttpStatus.badRequest,
-        error.message,
+        error.toString(),
       );
     } on StateError catch (error) {
       await _sendError(
         request.response,
         HttpStatus.conflict,
-        error.message,
+        error.toString(),
       );
     } catch (error, stackTrace) {
       stderr.writeln('Runner request failed: $error');
