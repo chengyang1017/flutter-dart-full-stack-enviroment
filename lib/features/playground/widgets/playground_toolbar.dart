@@ -4,6 +4,7 @@ import '../../export/services/workspace_export_download.dart';
 import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
+import '../../export/widgets/export_project_guide_dialog.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
 import '../../runner/widgets/dart_frog_api_lab_dialog.dart';
 import '../../workspace/services/dart_frog_workspace_service.dart';
@@ -30,8 +31,7 @@ class PlaygroundToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final density = compact ? VisualDensity.compact : VisualDensity.standard;
-    final canExport =
-        controller.workspace.isDirty && supportsWorkspaceExportDownload;
+    final canExport = supportsWorkspaceExportDownload;
     const dartFrog = DartFrogWorkspaceService();
     const serverpod = ServerpodWorkspaceService();
     final dartFrogEnabled = dartFrog.isEnabled(controller.workspace);
@@ -144,12 +144,13 @@ class PlaygroundToolbar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
+                  key: const ValueKey('export-project-button'),
                   style: OutlinedButton.styleFrom(visualDensity: density),
                   onPressed: canExport
                       ? () => _exportWorkspace(context)
                       : null,
                   icon: const Icon(Icons.download_outlined),
-                  label: const Text('导出修改'),
+                  label: const Text('导出项目'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -338,13 +339,22 @@ class PlaygroundToolbar extends StatelessWidget {
       final bundle = const WorkspaceExportService().build(
         controller.workspace,
       );
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => ExportProjectGuideDialog(
+          fileName: bundle.fileName,
+          projectType: bundle.manifest.projectType,
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+
       await downloadWorkspaceExport(bundle.bytes, bundle.fileName);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已导出 ${bundle.manifest.changes.length} 个修改：${bundle.fileName}',
+            '已下载练习包：${bundle.fileName}。它保存的是源码和项目配方，不是完整 Flutter 工程。',
           ),
         ),
       );
