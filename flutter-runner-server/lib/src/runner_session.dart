@@ -32,6 +32,12 @@ class RunnerSession {
   String? previewUrl;
   Process? process;
 
+  // Runtime-specific state is intentionally not serialized to clients.
+  // Local execution does not need these fields; the Docker backend uses them
+  // for its container id/name and the host port mapped to Flutter web-server.
+  String? runtimeId;
+  int? runtimePreviewPort;
+
   final List<RunnerLogEntry> logs = <RunnerLogEntry>[];
   final Set<String> managedFiles = <String>{};
 
