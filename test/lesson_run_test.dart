@@ -62,6 +62,23 @@ void main() {
     WidgetTester tester, {
     required String code,
   }) async {
+    final step = lesson.steps.first;
+
+    // Seed the lesson with the code under test instead of depending on
+    // re_editor's private text-input widget hierarchy. These tests verify the
+    // Run -> Preview/Result navigation contract, not the editor package itself.
+    await store.save(
+      lesson.id,
+      {
+        'currentStep': 0,
+        'completedSteps': <String>[],
+        'lastCode': <String, String>{step.id: code},
+        'fileCodes': <String, String>{step.currentFile: code},
+        'attempts': 0,
+        'viewedAnswer': false,
+      },
+    );
+
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetPhysicalSize);
@@ -72,12 +89,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('代码'));
     await tester.pumpAndSettle();
-    final editor = find.descendant(
-      of: find.byType(LessonCodePanel),
-      matching: find.byType(EditableText),
-    );
-    expect(editor, findsOneWidget);
-    await tester.enterText(editor, code);
     final context = tester.element(
       find.byKey(const ValueKey('compact-lesson-layout')),
     );
