@@ -26,6 +26,13 @@ extension RunnerStatusLabel on RunnerStatus {
         RunnerStatus.stopped => 'Stopped',
         RunnerStatus.error => 'Error',
       };
+
+  static RunnerStatus parse(String value) {
+    for (final status in RunnerStatus.values) {
+      if (status.name == value) return status;
+    }
+    throw FormatException('Unknown runner status: $value');
+  }
 }
 
 class RunSession {
@@ -38,6 +45,17 @@ class RunSession {
     this.previewUrl,
   });
 
+  factory RunSession.fromJson(Map<String, dynamic> json) {
+    return RunSession(
+      id: json['id'] as String,
+      projectType: json['projectType'] as String? ?? 'flutter',
+      status: RunnerStatusLabel.parse(json['status'] as String),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      lastActivityAt: DateTime.parse(json['lastActivityAt'] as String),
+      previewUrl: json['previewUrl'] as String?,
+    );
+  }
+
   final String id;
   final String projectType;
   final RunnerStatus status;
@@ -45,10 +63,20 @@ class RunSession {
   final DateTime lastActivityAt;
   final String? previewUrl;
 
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'projectType': projectType,
+        'status': status.name,
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        'lastActivityAt': lastActivityAt.toUtc().toIso8601String(),
+        'previewUrl': previewUrl,
+      };
+
   RunSession copyWith({
     RunnerStatus? status,
     DateTime? lastActivityAt,
     String? previewUrl,
+    bool clearPreviewUrl = false,
   }) {
     return RunSession(
       id: id,
@@ -56,7 +84,7 @@ class RunSession {
       status: status ?? this.status,
       createdAt: createdAt,
       lastActivityAt: lastActivityAt ?? this.lastActivityAt,
-      previewUrl: previewUrl ?? this.previewUrl,
+      previewUrl: clearPreviewUrl ? null : previewUrl ?? this.previewUrl,
     );
   }
 }
