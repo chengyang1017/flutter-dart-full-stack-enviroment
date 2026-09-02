@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../workspace/widgets/workspace_file_explorer.dart';
 import '../controllers/playground_controller.dart';
 import 'code_editor_panel.dart';
 import 'error_panel.dart';
@@ -20,39 +21,25 @@ class WidePlaygroundLayout extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Column(
-        key: const ValueKey(
-          'wide-playground-layout',
-        ),
+        key: const ValueKey('wide-playground-layout'),
         children: [
           SizedBox(
             height: 52,
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
                   Text(
-                    'Flutter UI Playground',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge,
+                    'Flutter Practice Workspace',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const Spacer(),
                   const SizedBox(
                     width: 260,
                     child: TabBar(
                       tabs: [
-                        Tab(
-                          icon: Icon(Icons.code),
-                          text: '程式碼',
-                        ),
-                        Tab(
-                          icon: Icon(
-                            Icons.phone_android,
-                          ),
-                          text: '預覽',
-                        ),
+                        Tab(icon: Icon(Icons.code), text: '代码'),
+                        Tab(icon: Icon(Icons.phone_android), text: '预览'),
                       ],
                     ),
                   ),
@@ -60,39 +47,43 @@ class WidePlaygroundLayout extends StatelessWidget {
               ),
             ),
           ),
-
           toolbar,
-
           Expanded(
             child: TabBarView(
               children: [
-                // 程式碼頁面
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    return Column(
+                    return Row(
                       children: [
-                        Expanded(
-                          child: CodeEditorPanel(
-                            controller: controller,
+                        SizedBox(
+                          width: constraints.maxWidth < 980 ? 210 : 250,
+                          child: WorkspaceFileExplorer(
+                            workspace: controller.workspace,
+                            onOpenFile: controller.selectWorkspaceFile,
                           ),
                         ),
-
-                        // 錯誤區最多占整體高度的 20%
-                        ErrorPanel(
-                          controller: controller,
-                          maxHeight:
-                              constraints.maxHeight *
-                                  0.2,
+                        const VerticalDivider(width: 1),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: CodeEditorPanel(controller: controller),
+                                ),
+                              ),
+                              ErrorPanel(
+                                controller: controller,
+                                maxHeight: constraints.maxHeight * 0.2,
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     );
                   },
                 ),
-
-                // 預覽頁面
-                PreviewPanel(
-                  controller: controller,
-                ),
+                PreviewPanel(controller: controller),
               ],
             ),
           ),
