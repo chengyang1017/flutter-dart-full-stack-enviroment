@@ -32,6 +32,10 @@ class WorkspaceFileExplorer extends StatelessWidget {
               directory: _activeDirectory(),
               type: WorkspaceEntryType.directory,
             ),
+            onMoveToRoot: (sourcePath) => _runAction(
+              context,
+              () => workspace.moveEntry(sourcePath, ''),
+            ),
           ),
           const Divider(height: 1, color: Color(0xff2c313c)),
           Expanded(
@@ -59,7 +63,7 @@ class WorkspaceFileExplorer extends StatelessWidget {
     int depth,
   ) {
     if (entry.isDirectory) {
-      return DragTarget<String>(
+      final folder = DragTarget<String>(
         onWillAccept: (sourcePath) {
           if (sourcePath == null || sourcePath == entry.path) return false;
           return !entry.path.startsWith('$sourcePath/');
@@ -113,6 +117,8 @@ class WorkspaceFileExplorer extends StatelessWidget {
           );
         },
       );
+
+      return _draggable(entry, folder);
     }
 
     final tile = ListTile(
@@ -140,6 +146,10 @@ class WorkspaceFileExplorer extends StatelessWidget {
       ),
     );
 
+    return _draggable(entry, tile);
+  }
+
+  Widget _draggable(WorkspaceEntry entry, Widget child) {
     return LongPressDraggable<String>(
       data: entry.path,
       feedback: Material(
@@ -147,14 +157,25 @@ class WorkspaceFileExplorer extends StatelessWidget {
         color: const Color(0xff242832),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Text(
-            entry.name,
-            style: const TextStyle(color: Colors.white),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                entry.isDirectory ? Icons.folder_outlined : _fileIcon(entry.name),
+                size: 16,
+                color: Colors.white70,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                entry.name,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ],
           ),
         ),
       ),
-      childWhenDragging: Opacity(opacity: .35, child: tile),
-      child: tile,
+      childWhenDragging: Opacity(opacity: .35, child: child),
+      child: child,
     );
   }
 
@@ -285,55 +306,66 @@ class _ExplorerHeader extends StatelessWidget {
     required this.workspace,
     required this.onCreateFile,
     required this.onCreateDirectory,
+    required this.onMoveToRoot,
   });
 
   final WorkspaceController workspace;
   final VoidCallback onCreateFile;
   final VoidCallback onCreateDirectory;
+  final ValueChanged<String> onMoveToRoot;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 12, right: 4),
-        child: Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'PROJECT',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: .8,
-                  color: Color(0xffaab2bf),
+    return DragTarget<String>(
+      onWillAccept: (path) {
+        if (path == null) return false;
+        final entry = workspace.entryAt(path);
+        return entry != null && entry.parentPath.isNotEmpty;
+      },
+      onAccept: onMoveToRoot,
+      builder: (context, candidates, rejected) {
+        return Container(
+          height: 40,
+          color: candidates.isNotEmpty ? const Color(0xff202938) : null,
+          padding: const EdgeInsets.only(left: 12, right: 4),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'PROJECT',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .8,
+                    color: Color(0xffaab2bf),
+                  ),
                 ),
               ),
-            ),
-            if (workspace.isDirty)
-              Tooltip(
-                message: '${workspace.changes.length} 个 Workspace 修改',
-                child: const Icon(
-                  Icons.circle,
-                  size: 8,
-                  color: Color(0xff82aaff),
+              if (workspace.isDirty)
+                Tooltip(
+                  message: '${workspace.changes.length} 个 Workspace 修改',
+                  child: const Icon(
+                    Icons.circle,
+                    size: 8,
+                    color: Color(0xff82aaff),
+                  ),
                 ),
+              IconButton(
+                tooltip: '新建文件',
+                visualDensity: VisualDensity.compact,
+                onPressed: onCreateFile,
+                icon: const Icon(Icons.note_add_outlined, size: 18),
               ),
-            IconButton(
-              tooltip: '新建文件',
-              visualDensity: VisualDensity.compact,
-              onPressed: onCreateFile,
-              icon: const Icon(Icons.note_add_outlined, size: 18),
-            ),
-            IconButton(
-              tooltip: '新建文件夹',
-              visualDensity: VisualDensity.compact,
-              onPressed: onCreateDirectory,
-              icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-            ),
-          ],
-        ),
-      ),
+              IconButton(
+                tooltip: '新建文件夹',
+                visualDensity: VisualDensity.compact,
+                onPressed: onCreateDirectory,
+                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
