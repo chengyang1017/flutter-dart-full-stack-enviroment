@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 import '../../workspace/controllers/workspace_controller.dart';
-import '../../workspace/models/workspace_change.dart';
 import '../models/export_manifest.dart';
 import '../models/workspace_export_bundle.dart';
 
@@ -16,19 +15,11 @@ class WorkspaceExportService {
     DateTime? exportedAt,
   }) {
     final changes = workspace.changes;
-    final changedPayloadPaths = <String>{};
-
-    for (final change in changes) {
-      if (change.type == WorkspaceChangeType.created ||
-          change.type == WorkspaceChangeType.modified) {
-        final entry = workspace.entryAt(change.path);
-        if (entry != null && entry.isFile) {
-          changedPayloadPaths.add(change.path);
-        }
-      }
-    }
-
-    final payloadFiles = changedPayloadPaths.toList()..sort();
+    final payloadFiles = workspace.entries
+        .where((entry) => entry.isFile && _isPortablePath(entry.path))
+        .map((entry) => entry.path)
+        .toList()
+      ..sort();
     final projectType = _projectType(workspace);
     final manifest = ExportManifest(
       exportedAt: exportedAt ?? DateTime.now(),
@@ -63,6 +54,33 @@ class WorkspaceExportService {
       bytes: Uint8List.fromList(encoded),
       manifest: manifest,
     );
+  }
+
+  bool _isPortablePath(String path) {
+    const generatedRoots = <String>{
+      '.dart_tool',
+      '.git',
+      '.gradle',
+      '.idea',
+      'android',
+      'build',
+      'coverage',
+      'ios',
+      'linux',
+      'macos',
+      'web',
+      'windows',
+    };
+    const generatedRootFiles = <String>{
+      '.metadata',
+      '.packages',
+      '.flutter-plugins',
+      '.flutter-plugins-dependencies',
+    };
+
+    if (generatedRootFiles.contains(path)) return false;
+    final firstSegment = path.split('/').first;
+    return !generatedRoots.contains(firstSegment);
   }
 
   String _projectType(WorkspaceController workspace) {

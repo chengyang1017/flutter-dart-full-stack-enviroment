@@ -6,7 +6,7 @@ import 'package:flutter_ui_playground/features/export/services/workspace_export_
 import 'package:flutter_ui_playground/features/workspace/controllers/workspace_controller.dart';
 
 void main() {
-  test('export archive only contains manifest and changed file payloads', () {
+  test('export archive contains the complete portable text workspace', () {
     final workspace = WorkspaceController.flutterPlayground(
       mainDartContent: 'void main() {}',
     );
@@ -25,14 +25,24 @@ void main() {
     final archive = ZipDecoder().decodeBytes(bundle.bytes);
     final names = archive.files.map((file) => file.name).toSet();
 
-    expect(names, {'manifest.json', 'lib/main.dart'});
-    expect(names, isNot(contains('pubspec.yaml')));
-    expect(bundle.manifest.payloadFiles, ['lib/main.dart']);
+    expect(
+      names,
+      {
+        'manifest.json',
+        'analysis_options.yaml',
+        'lib/main.dart',
+        'pubspec.yaml',
+      },
+    );
+    expect(
+      bundle.manifest.payloadFiles,
+      ['analysis_options.yaml', 'lib/main.dart', 'pubspec.yaml'],
+    );
     expect(bundle.manifest.changes.length, 1);
     expect(bundle.manifest.changes.single.path, 'lib/main.dart');
   });
 
-  test('manifest records move and deletion without exporting unchanged payload', () {
+  test('manifest keeps changes while payload represents current source', () {
     final workspace = WorkspaceController.flutterPlayground(
       mainDartContent: 'void main() {}',
     );
@@ -73,6 +83,9 @@ void main() {
       ),
       isTrue,
     );
-    expect(bundle.manifest.payloadFiles, isEmpty);
+    expect(
+      bundle.manifest.payloadFiles,
+      ['lib/screens/main.dart', 'pubspec.yaml'],
+    );
   });
 }

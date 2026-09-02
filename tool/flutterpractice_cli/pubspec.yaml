@@ -1,0 +1,15 @@
+name: flutterpractice_cli
+description: Rebuild a new local Flutter project from a portable Flutter practice package.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  archive: ^4.2.0
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
