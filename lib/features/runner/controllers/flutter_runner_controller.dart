@@ -146,11 +146,13 @@ class FlutterRunnerController extends ChangeNotifier {
         if (nextStatus != null) {
           _setStatus(nextStatus);
         }
+        break;
       case RunnerEventType.log:
         final message = event.message;
         if (message != null) {
           _appendLog(message);
         }
+        break;
     }
   }
 
