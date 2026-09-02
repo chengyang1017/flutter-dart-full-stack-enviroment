@@ -6,8 +6,12 @@ import 'package:hive/hive.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../project_import/services/flutter_project_zip_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/models/run_session.dart';
+import '../../runner/models/runner_preview_target.dart';
 import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
+import '../../runner/services/runner_preview_tab.dart';
+import '../../runner/widgets/runner_target_dialog.dart';
 import '../../workspace/services/hive_workspace_project_catalog_store.dart';
 import '../../workspace/services/hive_workspace_snapshot_store.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
@@ -37,6 +41,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   WorkspaceProjectLibrary? _projectLibrary;
   WorkspaceSnapshotStore? _snapshotStore;
   KeyedWorkspaceSnapshotStore? _activeProjectStore;
+  RunnerPreviewTabHandle? _pendingWebPreviewTab;
 
   @override
   void initState() {
@@ -89,6 +94,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   }
 
   void _disposeControllers() {
+    _closePendingWebPreviewTab();
     runner.removeListener(_refresh);
     runner.dispose();
     controller.removeListener(_refresh);
@@ -103,7 +109,85 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   }
 
   void _refresh() {
+    final pendingTab = _pendingWebPreviewTab;
+    if (pendingTab != null) {
+      final previewUrl = runner.previewUrl;
+      if (runner.canHotReload && previewUrl != null) {
+        pendingTab.navigate(previewUrl);
+        _pendingWebPreviewTab = null;
+      } else if (runner.status == RunnerStatus.error ||
+          runner.status == RunnerStatus.stopped) {
+        pendingTab.close();
+        _pendingWebPreviewTab = null;
+      }
+    }
+
     if (mounted) setState(() {});
+  }
+
+  void _closePendingWebPreviewTab() {
+    _pendingWebPreviewTab?.close();
+    _pendingWebPreviewTab = null;
+  }
+
+  void _showRunTargetDialog(
+    BuildContext dialogContext, {
+    TabController? compactTabs,
+  }) {
+    if (!runner.canRun) return;
+
+    showDialog<void>(
+      context: dialogContext,
+      builder: (_) => RunnerTargetDialog(
+        onSelected: (target) {
+          unawaited(
+            _runTarget(
+              target,
+              compactTabs: compactTabs,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _runTarget(
+    RunnerPreviewTarget target, {
+    TabController? compactTabs,
+  }) async {
+    if (!runner.canRun) return;
+
+    if (target.opensExternalTab && !runner.isMock) {
+      _closePendingWebPreviewTab();
+      final tab = openRunnerPreviewTab();
+      if (tab.opened) {
+        _pendingWebPreviewTab = tab;
+      } else {
+        scheduleMicrotask(() {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('浏览器阻止了网页预览标签页。请允许本站打开弹窗后重新运行。'),
+            ),
+          );
+        });
+      }
+    } else if (target.opensExternalTab && runner.isMock) {
+      scheduleMicrotask(() {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mock Runner 没有真实网页 Preview URL。请连接真实 Runner 后使用网页运行。'),
+          ),
+        );
+      });
+    }
+
+    runner.selectPreviewTarget(target);
+    await runner.run();
+
+    if (!mounted || target.opensExternalTab) return;
+    compactTabs?.animateTo(1);
   }
 
   Future<void> _switchProject(String projectId) async {
@@ -363,30 +447,34 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
                 return DefaultTabController(
                   length: 4,
                   child: Builder(
-                    builder: (tabContext) => CompactPlaygroundLayout(
-                      controller: controller,
-                      runner: runner,
-                      toolbar: _buildToolbar(
-                        compact: true,
-                        onRun: () async {
-                          await runner.run();
-                          if (tabContext.mounted) {
-                            DefaultTabController.of(tabContext).animateTo(1);
-                          }
-                        },
-                        onQuickPreview: () {
-                          controller.runCode();
-                          DefaultTabController.of(tabContext).animateTo(1);
-                        },
-                      ),
-                    ),
+                    builder: (tabContext) {
+                      final tabs = DefaultTabController.of(tabContext);
+                      return CompactPlaygroundLayout(
+                        controller: controller,
+                        runner: runner,
+                        toolbar: _buildToolbar(
+                          compact: true,
+                          onRun: () => _showRunTargetDialog(
+                            tabContext,
+                            compactTabs: tabs,
+                          ),
+                          onQuickPreview: () {
+                            controller.runCode();
+                            tabs.animateTo(1);
+                          },
+                        ),
+                      );
+                    },
                   ),
                 );
               }
               return WidePlaygroundLayout(
                 controller: controller,
                 runner: runner,
-                toolbar: _buildToolbar(compact: false),
+                toolbar: _buildToolbar(
+                  compact: false,
+                  onRun: () => _showRunTargetDialog(context),
+                ),
               );
             },
           ),

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../workspace/controllers/workspace_controller.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
+import '../models/runner_preview_target.dart';
 import '../services/flutter_runner_client.dart';
 
 class FlutterRunnerController extends ChangeNotifier {
@@ -18,6 +19,7 @@ class FlutterRunnerController extends ChangeNotifier {
 
   RunSession? session;
   RunnerStatus status = RunnerStatus.idle;
+  RunnerPreviewTarget previewTarget = RunnerPreviewTarget.phone;
   final List<String> logs = [];
 
   StreamSubscription<RunnerEvent>? _eventsSubscription;
@@ -43,6 +45,12 @@ class FlutterRunnerController extends ChangeNotifier {
       session != null &&
       status != RunnerStatus.idle &&
       status != RunnerStatus.stopped;
+
+  void selectPreviewTarget(RunnerPreviewTarget target) {
+    if (previewTarget == target) return;
+    previewTarget = target;
+    notifyListeners();
+  }
 
   Future<void> run() async {
     if (!canRun) return;
