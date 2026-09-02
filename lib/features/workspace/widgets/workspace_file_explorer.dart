@@ -13,10 +13,14 @@ class WorkspaceFileExplorer extends StatelessWidget {
   final WorkspaceController workspace;
   final ValueChanged<String> onOpenFile;
 
+  static const _panelBackground = Color(0xff15171b);
+  static const _entryTextColor = Color(0xffd6deeb);
+  static const _mutedIconColor = Color(0xff9da5b4);
+
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xff15171b),
+      color: _panelBackground,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -86,6 +90,10 @@ class WorkspaceFileExplorer extends StatelessWidget {
               childrenPadding: EdgeInsets.zero,
               dense: true,
               visualDensity: VisualDensity.compact,
+              textColor: _entryTextColor,
+              collapsedTextColor: _entryTextColor,
+              iconColor: _mutedIconColor,
+              collapsedIconColor: _mutedIconColor,
               leading: const Icon(
                 Icons.folder_outlined,
                 size: 18,
@@ -130,10 +138,13 @@ class WorkspaceFileExplorer extends StatelessWidget {
       ),
       selected: workspace.activePath == entry.path,
       selectedTileColor: const Color(0xff242832),
+      iconColor: _mutedIconColor,
+      selectedColor: _entryTextColor,
+      textColor: _entryTextColor,
       leading: Icon(
         _fileIcon(entry.name),
         size: 17,
-        color: const Color(0xff9da5b4),
+        color: _mutedIconColor,
       ),
       title: _EntryLabel(
         entry: entry,
@@ -337,7 +348,7 @@ class _ExplorerHeader extends StatelessWidget {
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: .8,
-                    color: Color(0xffaab2bf),
+                    color: Color(0xffc5ccda),
                   ),
                 ),
               ),
@@ -354,13 +365,21 @@ class _ExplorerHeader extends StatelessWidget {
                 tooltip: '新建文件',
                 visualDensity: VisualDensity.compact,
                 onPressed: onCreateFile,
-                icon: const Icon(Icons.note_add_outlined, size: 18),
+                icon: const Icon(
+                  Icons.note_add_outlined,
+                  size: 18,
+                  color: Color(0xffaab2bf),
+                ),
               ),
               IconButton(
                 tooltip: '新建文件夹',
                 visualDensity: VisualDensity.compact,
                 onPressed: onCreateDirectory,
-                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+                icon: const Icon(
+                  Icons.create_new_folder_outlined,
+                  size: 18,
+                  color: Color(0xffaab2bf),
+                ),
               ),
             ],
           ),
@@ -385,7 +404,10 @@ class _EntryLabel extends StatelessWidget {
             entry.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12.5),
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xffd6deeb),
+            ),
           ),
         ),
         if (dirty)
@@ -421,6 +443,10 @@ class _EntryMenu extends StatelessWidget {
       tooltip: '更多',
       padding: EdgeInsets.zero,
       iconSize: 17,
+      icon: const Icon(
+        Icons.more_vert,
+        color: Color(0xff8f98a8),
+      ),
       onSelected: (value) {
         switch (value) {
           case 'file':
