@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../workspace/models/workspace_capability.dart';
 import '../../workspace/models/workspace_change.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
@@ -30,11 +31,17 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
   @override
   Future<RunSession> createSession({
     required Map<String, String> files,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) async {
     final response = await _http.post(
       _uri('/sessions'),
       headers: _jsonHeaders,
-      body: jsonEncode({'files': files}),
+      body: jsonEncode({
+        'files': files,
+        'firebaseCapabilities': FirebaseCapabilityCodec.encode(
+          firebaseCapabilities,
+        ),
+      }),
     );
     final body = _decodeObject(response, expected: const {200, 201});
     return RunSession.fromJson(
@@ -95,12 +102,16 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
     required String sessionId,
     required Map<String, String> files,
     required List<WorkspaceChange> changes,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) async {
     final response = await _http.put(
       _uri('/sessions/$sessionId/workspace'),
       headers: _jsonHeaders,
       body: jsonEncode({
         'files': files,
+        'firebaseCapabilities': FirebaseCapabilityCodec.encode(
+          firebaseCapabilities,
+        ),
         'changes': changes
             .map(
               (change) => {

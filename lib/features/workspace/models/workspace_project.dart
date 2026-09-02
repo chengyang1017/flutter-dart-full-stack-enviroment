@@ -1,3 +1,5 @@
+import 'workspace_capability.dart';
+
 enum WorkspaceProjectKind {
   practice,
   importedFlutter,
@@ -17,6 +19,7 @@ class WorkspaceProject {
     required this.createdAt,
     required this.updatedAt,
     this.lifecycle = WorkspaceLifecycle.saved,
+    this.firebaseCapabilities = const <FirebaseCapability>{},
   });
 
   final String id;
@@ -26,11 +29,13 @@ class WorkspaceProject {
   final WorkspaceLifecycle lifecycle;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final Set<FirebaseCapability> firebaseCapabilities;
 
   WorkspaceProject copyWith({
     String? name,
     WorkspaceLifecycle? lifecycle,
     DateTime? updatedAt,
+    Set<FirebaseCapability>? firebaseCapabilities,
   }) {
     return WorkspaceProject(
       id: id,
@@ -40,6 +45,7 @@ class WorkspaceProject {
       lifecycle: lifecycle ?? this.lifecycle,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      firebaseCapabilities: firebaseCapabilities ?? this.firebaseCapabilities,
     );
   }
 
@@ -51,6 +57,9 @@ class WorkspaceProject {
         'lifecycle': lifecycle.name,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'updatedAt': updatedAt.toUtc().toIso8601String(),
+        'firebaseCapabilities': FirebaseCapabilityCodec.encode(
+          firebaseCapabilities,
+        ),
       };
 
   factory WorkspaceProject.fromJson(Map<dynamic, dynamic> json) {
@@ -87,6 +96,9 @@ class WorkspaceProject {
       lifecycle: lifecycle,
       createdAt: readDate(json['createdAt']),
       updatedAt: readDate(json['updatedAt']),
+      firebaseCapabilities: FirebaseCapabilityCodec.decode(
+        json['firebaseCapabilities'],
+      ),
     );
   }
 }

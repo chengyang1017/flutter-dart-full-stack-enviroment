@@ -7,6 +7,7 @@ import 'package:flutter_ui_playground/features/runner/services/flutter_runner_cl
 import 'package:flutter_ui_playground/features/runner/services/mock_flutter_runner_client.dart';
 import 'package:flutter_ui_playground/features/runner/services/workspace_runner_source_provider.dart';
 import 'package:flutter_ui_playground/features/workspace/controllers/workspace_controller.dart';
+import 'package:flutter_ui_playground/features/workspace/models/workspace_capability.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_change.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_identity.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_project.dart';
@@ -43,6 +44,7 @@ void main() {
 
     expect(first.remoteRevision, 'r2');
     expect(first.files['lib/main.dart'], contains('cloud-1'));
+    expect(first.firebaseCapabilities, {FirebaseCapability.firestore});
     expect(remote.expectedSaveRevisions, ['r1']);
     expect(provider.revision, 'r2');
 
@@ -54,6 +56,7 @@ void main() {
 
     expect(second.remoteRevision, 'r3');
     expect(second.files['lib/main.dart'], contains('cloud-2'));
+    expect(second.firebaseCapabilities, {FirebaseCapability.firestore});
     expect(remote.expectedSaveRevisions, ['r1', 'r2']);
     expect(provider.revision, 'r3');
   });
@@ -79,7 +82,8 @@ void main() {
     expect(remote.expectedSaveRevisions, ['r1']);
   });
 
-  test('runner syncs exactly the source prepared by provider', () async {
+  test('runner syncs exactly the source and capabilities prepared by provider',
+      () async {
     final workspace = WorkspaceController.flutterPlayground(
       mainDartContent: '// browser-memory',
     );
@@ -93,6 +97,10 @@ void main() {
             'lib/main.dart': '// persisted-r7',
           },
           changes: const <WorkspaceChange>[],
+          firebaseCapabilities: const <FirebaseCapability>{
+            FirebaseCapability.auth,
+            FirebaseCapability.storage,
+          },
           remoteRevision: 'r7',
         ),
       ),
@@ -105,6 +113,14 @@ void main() {
 
     expect(client.createdFiles['lib/main.dart'], '// persisted-r7');
     expect(client.syncedFiles['lib/main.dart'], '// persisted-r7');
+    expect(
+      client.createdCapabilities,
+      {FirebaseCapability.auth, FirebaseCapability.storage},
+    );
+    expect(
+      client.syncedCapabilities,
+      {FirebaseCapability.auth, FirebaseCapability.storage},
+    );
     expect(runner.lastSyncedSourceRevision, 'r7');
     expect(
       runner.logs.any(
@@ -127,6 +143,9 @@ WorkspaceProject _project(String id) {
     lifecycle: WorkspaceLifecycle.saved,
     createdAt: now,
     updatedAt: now,
+    firebaseCapabilities: const <FirebaseCapability>{
+      FirebaseCapability.firestore,
+    },
   );
 }
 
@@ -234,6 +253,8 @@ class _RecordingRunnerClient implements FlutterRunnerClient {
   final MockFlutterRunnerClient _delegate = MockFlutterRunnerClient();
   Map<String, String> createdFiles = <String, String>{};
   Map<String, String> syncedFiles = <String, String>{};
+  Set<FirebaseCapability> createdCapabilities = <FirebaseCapability>{};
+  Set<FirebaseCapability> syncedCapabilities = <FirebaseCapability>{};
 
   @override
   String get displayName => _delegate.displayName;
@@ -244,9 +265,14 @@ class _RecordingRunnerClient implements FlutterRunnerClient {
   @override
   Future<RunSession> createSession({
     required Map<String, String> files,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) {
     createdFiles = Map<String, String>.of(files);
-    return _delegate.createSession(files: files);
+    createdCapabilities = Set<FirebaseCapability>.of(firebaseCapabilities);
+    return _delegate.createSession(
+      files: files,
+      firebaseCapabilities: firebaseCapabilities,
+    );
   }
 
   @override
@@ -258,12 +284,15 @@ class _RecordingRunnerClient implements FlutterRunnerClient {
     required String sessionId,
     required Map<String, String> files,
     required List<WorkspaceChange> changes,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) {
     syncedFiles = Map<String, String>.of(files);
+    syncedCapabilities = Set<FirebaseCapability>.of(firebaseCapabilities);
     return _delegate.syncWorkspace(
       sessionId: sessionId,
       files: files,
       changes: changes,
+      firebaseCapabilities: firebaseCapabilities,
     );
   }
 

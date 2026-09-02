@@ -1,3 +1,5 @@
+import '../../workspace/models/workspace_capability.dart';
+
 enum RunnerStatus {
   idle,
   creating,
@@ -42,6 +44,7 @@ class RunSession {
     required this.createdAt,
     required this.lastActivityAt,
     this.projectType = 'flutter',
+    this.firebaseCapabilities = const <FirebaseCapability>{},
     this.previewUrl,
     this.backendUrl,
   });
@@ -53,6 +56,9 @@ class RunSession {
       status: RunnerStatusLabel.parse(json['status'] as String),
       createdAt: DateTime.parse(json['createdAt'] as String),
       lastActivityAt: DateTime.parse(json['lastActivityAt'] as String),
+      firebaseCapabilities: FirebaseCapabilityCodec.decode(
+        json['firebaseCapabilities'],
+      ),
       previewUrl: json['previewUrl'] as String?,
       backendUrl: json['backendUrl'] as String?,
     );
@@ -63,6 +69,7 @@ class RunSession {
   final RunnerStatus status;
   final DateTime createdAt;
   final DateTime lastActivityAt;
+  final Set<FirebaseCapability> firebaseCapabilities;
   final String? previewUrl;
   final String? backendUrl;
 
@@ -72,6 +79,9 @@ class RunSession {
         'status': status.name,
         'createdAt': createdAt.toUtc().toIso8601String(),
         'lastActivityAt': lastActivityAt.toUtc().toIso8601String(),
+        'firebaseCapabilities': FirebaseCapabilityCodec.encode(
+          firebaseCapabilities,
+        ),
         'previewUrl': previewUrl,
         'backendUrl': backendUrl,
       };
@@ -79,6 +89,7 @@ class RunSession {
   RunSession copyWith({
     RunnerStatus? status,
     DateTime? lastActivityAt,
+    Set<FirebaseCapability>? firebaseCapabilities,
     String? previewUrl,
     bool clearPreviewUrl = false,
     String? backendUrl,
@@ -90,6 +101,7 @@ class RunSession {
       status: status ?? this.status,
       createdAt: createdAt,
       lastActivityAt: lastActivityAt ?? this.lastActivityAt,
+      firebaseCapabilities: firebaseCapabilities ?? this.firebaseCapabilities,
       previewUrl: clearPreviewUrl ? null : previewUrl ?? this.previewUrl,
       backendUrl: clearBackendUrl ? null : backendUrl ?? this.backendUrl,
     );

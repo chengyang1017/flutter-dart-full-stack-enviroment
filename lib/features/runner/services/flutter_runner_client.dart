@@ -1,3 +1,4 @@
+import '../../workspace/models/workspace_capability.dart';
 import '../../workspace/models/workspace_change.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
@@ -8,6 +9,7 @@ abstract interface class FlutterRunnerClient {
 
   Future<RunSession> createSession({
     required Map<String, String> files,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   });
 
   Stream<RunnerEvent> watchSession(String sessionId);
@@ -16,6 +18,7 @@ abstract interface class FlutterRunnerClient {
     required String sessionId,
     required Map<String, String> files,
     required List<WorkspaceChange> changes,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   });
 
   Future<void> run(String sessionId);

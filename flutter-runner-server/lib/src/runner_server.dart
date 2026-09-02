@@ -5,10 +5,15 @@ import 'runner_session.dart';
 import 'session_manager.dart';
 
 class RunnerServer {
-  RunnerServer({
-    required this.manager,
-    this.allowedOrigin = '*',
-  });
+  RunnerServer({required this.manager, this.allowedOrigin = '*'});
+
+  static const _supportedFirebaseCapabilities = <String>{
+    'auth',
+    'firestore',
+    'storage',
+    'messaging',
+    'functions',
+  };
 
   final SessionManager manager;
   final String allowedOrigin;
@@ -21,34 +26,27 @@ class RunnerServer {
 
     try {
       final segments = request.uri.pathSegments;
-
       if (request.method == 'GET' &&
           segments.length == 1 &&
           segments.first == 'health') {
-        await _sendJson(
-          request.response,
-          HttpStatus.ok,
-          {
-            'status': 'ok',
-            'activeSessions': manager.sessions.length,
-          },
-        );
+        await _sendJson(request.response, HttpStatus.ok, {
+          'status': 'ok',
+          'activeSessions': manager.sessions.length,
+        });
         return;
       }
 
       if (segments.isEmpty || segments.first != 'sessions') {
-        await _sendError(
-          request.response,
-          HttpStatus.notFound,
-          'Route not found.',
-        );
+        await _sendError(request.response, HttpStatus.notFound, 'Route not found.');
         return;
       }
 
       if (segments.length == 1 && request.method == 'POST') {
         final body = await _readJsonObject(request);
         final files = _readFiles(body['files']);
+        final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
         final session = await manager.createSession(files);
+        session.setFirebaseCapabilities(capabilities ?? const <String>{});
         await _sendJson(
           request.response,
           HttpStatus.created,
@@ -58,16 +56,11 @@ class RunnerServer {
       }
 
       if (segments.length < 2) {
-        await _sendError(
-          request.response,
-          HttpStatus.notFound,
-          'Route not found.',
-        );
+        await _sendError(request.response, HttpStatus.notFound, 'Route not found.');
         return;
       }
 
       final sessionId = segments[1];
-
       if (segments.length == 2 && request.method == 'GET') {
         final session = manager.requireSession(sessionId);
         session.touch();
@@ -80,16 +73,11 @@ class RunnerServer {
             .skip(safeCursor)
             .map((entry) => entry.toJson())
             .toList(growable: false);
-
-        await _sendJson(
-          request.response,
-          HttpStatus.ok,
-          {
-            'session': session.toJson(),
-            'logs': logs,
-            'nextLogIndex': session.logs.length,
-          },
-        );
+        await _sendJson(request.response, HttpStatus.ok, {
+          'session': session.toJson(),
+          'logs': logs,
+          'nextLogIndex': session.logs.length,
+        });
         return;
       }
 
@@ -106,7 +94,11 @@ class RunnerServer {
         final session = manager.requireSession(sessionId);
         final body = await _readJsonObject(request);
         final files = _readFiles(body['files']);
+        final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
         await manager.syncWorkspace(session, files);
+        if (capabilities != null) {
+          session.setFirebaseCapabilities(capabilities);
+        }
         await _sendJson(
           request.response,
           HttpStatus.ok,
@@ -137,29 +129,13 @@ class RunnerServer {
         }
       }
 
-      await _sendError(
-        request.response,
-        HttpStatus.notFound,
-        'Route not found.',
-      );
+      await _sendError(request.response, HttpStatus.notFound, 'Route not found.');
     } on RunnerSessionNotFound catch (error) {
-      await _sendError(
-        request.response,
-        HttpStatus.notFound,
-        error.toString(),
-      );
+      await _sendError(request.response, HttpStatus.notFound, error.toString());
     } on FormatException catch (error) {
-      await _sendError(
-        request.response,
-        HttpStatus.badRequest,
-        error.toString(),
-      );
+      await _sendError(request.response, HttpStatus.badRequest, error.toString());
     } on StateError catch (error) {
-      await _sendError(
-        request.response,
-        HttpStatus.conflict,
-        error.toString(),
-      );
+      await _sendError(request.response, HttpStatus.conflict, error.toString());
     } catch (error, stackTrace) {
       stderr.writeln('Runner request failed: $error');
       stderr.writeln(stackTrace);
@@ -171,10 +147,7 @@ class RunnerServer {
     }
   }
 
-  Future<void> _sendAccepted(
-    HttpResponse response,
-    RunnerSession session,
-  ) {
+  Future<void> _sendAccepted(HttpResponse response, RunnerSession session) {
     return _sendJson(
       response,
       HttpStatus.accepted,
@@ -196,7 +169,6 @@ class RunnerServer {
     if (value is! Map) {
       throw const FormatException('files must be a JSON object.');
     }
-
     final result = <String, String>{};
     for (final entry in value.entries) {
       if (entry.key is! String || entry.value is! String) {
@@ -209,16 +181,27 @@ class RunnerServer {
     return result;
   }
 
+  Set<String>? _readFirebaseCapabilities(Object? value) {
+    if (value == null) return null;
+    if (value is! Iterable) {
+      throw const FormatException('firebaseCapabilities must be a JSON array.');
+    }
+    final result = <String>{};
+    for (final item in value) {
+      if (item is! String || !_supportedFirebaseCapabilities.contains(item)) {
+        throw FormatException('Unsupported Firebase capability: $item');
+      }
+      result.add(item);
+    }
+    return result;
+  }
+
   Future<void> _sendError(
     HttpResponse response,
     int statusCode,
     String message,
   ) {
-    return _sendJson(
-      response,
-      statusCode,
-      {'error': message},
-    );
+    return _sendJson(response, statusCode, {'error': message});
   }
 
   Future<void> _sendJson(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_ui_playground/features/runner/models/run_session.dart';
 import 'package:flutter_ui_playground/features/runner/services/http_flutter_runner_client.dart';
+import 'package:flutter_ui_playground/features/workspace/models/workspace_capability.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_change.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -18,10 +19,11 @@ void main() {
           jsonEncode({
             'session': {
               'id': 'real-1',
-              'projectType': 'flutter',
+              'projectType': 'flutter-serverpod-mini',
               'status': 'ready',
               'createdAt': '2026-09-02T13:00:00.000Z',
               'lastActivityAt': '2026-09-02T13:00:00.000Z',
+              'firebaseCapabilities': ['auth', 'firestore'],
               'previewUrl': null,
             },
           }),
@@ -50,12 +52,19 @@ void main() {
       baseUrl: 'http://runner.test/',
       httpClient: httpClient,
     );
+    const capabilities = <FirebaseCapability>{
+      FirebaseCapability.auth,
+      FirebaseCapability.firestore,
+    };
 
     final session = await client.createSession(
       files: {'lib/main.dart': 'void main() {}'},
+      firebaseCapabilities: capabilities,
     );
     expect(session.id, 'real-1');
     expect(session.status, RunnerStatus.ready);
+    expect(session.projectType, 'flutter-serverpod-mini');
+    expect(session.firebaseCapabilities, capabilities);
     expect(client.isMock, isFalse);
 
     await client.syncWorkspace(
@@ -67,6 +76,7 @@ void main() {
           path: 'lib/main.dart',
         ),
       ],
+      firebaseCapabilities: capabilities,
     );
     await client.run(session.id);
 
@@ -79,8 +89,12 @@ void main() {
       ],
     );
 
+    final createBody = jsonDecode(requests[0].body) as Map<String, dynamic>;
+    expect(createBody['firebaseCapabilities'], ['auth', 'firestore']);
+
     final syncBody = jsonDecode(requests[1].body) as Map<String, dynamic>;
     expect(syncBody['files']['lib/main.dart'], 'void main() {}');
     expect(syncBody['changes'][0]['type'], 'modified');
+    expect(syncBody['firebaseCapabilities'], ['auth', 'firestore']);
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../workspace/models/workspace_capability.dart';
 import '../../workspace/models/workspace_change.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
@@ -18,6 +19,7 @@ class MockFlutterRunnerClient implements FlutterRunnerClient {
   @override
   Future<RunSession> createSession({
     required Map<String, String> files,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) async {
     final now = DateTime.now();
     final id = 'mock-${_nextSession++}';
@@ -28,6 +30,7 @@ class MockFlutterRunnerClient implements FlutterRunnerClient {
       status: RunnerStatus.ready,
       createdAt: now,
       lastActivityAt: now,
+      firebaseCapabilities: firebaseCapabilities,
     );
   }
 
@@ -45,11 +48,14 @@ class MockFlutterRunnerClient implements FlutterRunnerClient {
     required String sessionId,
     required Map<String, String> files,
     required List<WorkspaceChange> changes,
+    Set<FirebaseCapability> firebaseCapabilities = const <FirebaseCapability>{},
   }) async {
     _emitStatus(sessionId, RunnerStatus.syncing);
+    final firebaseLabel = FirebaseCapabilityCodec.encode(firebaseCapabilities);
     _emitLog(
       sessionId,
-      '[mock] Synced ${files.length} files (${changes.length} workspace changes).',
+      '[mock] Synced ${files.length} files (${changes.length} workspace changes; '
+      'Firebase: ${firebaseLabel.isEmpty ? 'none' : firebaseLabel.join(', ')}).',
     );
     await Future<void>.delayed(const Duration(milliseconds: 80));
   }

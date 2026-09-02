@@ -1,4 +1,5 @@
 import '../../workspace/controllers/workspace_controller.dart';
+import '../../workspace/models/workspace_capability.dart';
 import '../../workspace/models/workspace_project.dart';
 import '../../workspace/models/workspace_remote_models.dart';
 import '../../workspace/models/workspace_snapshot.dart';
@@ -11,15 +12,20 @@ abstract interface class WorkspaceRunnerSourceProvider {
 
 class LocalWorkspaceRunnerSourceProvider
     implements WorkspaceRunnerSourceProvider {
-  const LocalWorkspaceRunnerSourceProvider(this.workspace);
+  const LocalWorkspaceRunnerSourceProvider(
+    this.workspace, {
+    this.firebaseCapabilities = const <FirebaseCapability>{},
+  });
 
   final WorkspaceController workspace;
+  final Set<FirebaseCapability> firebaseCapabilities;
 
   @override
   Future<WorkspaceRunnerSource> prepare() async {
     return WorkspaceRunnerSource(
       files: _filesFromSnapshot(workspace.createSnapshot()),
       changes: workspace.changes,
+      firebaseCapabilities: firebaseCapabilities,
     );
   }
 }
@@ -84,6 +90,7 @@ class RemoteBackedWorkspaceRunnerSourceProvider
     return WorkspaceRunnerSource(
       files: _filesFromSnapshot(document.snapshot),
       changes: changes,
+      firebaseCapabilities: document.project.firebaseCapabilities,
       remoteRevision: document.revision,
     );
   }

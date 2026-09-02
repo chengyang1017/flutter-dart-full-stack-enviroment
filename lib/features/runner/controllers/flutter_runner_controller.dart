@@ -138,6 +138,7 @@ class FlutterRunnerController extends ChangeNotifier {
 
     final created = await client.createSession(
       files: source.files,
+      firebaseCapabilities: source.firebaseCapabilities,
     );
     session = created;
     _setStatus(created.status);
@@ -161,6 +162,7 @@ class FlutterRunnerController extends ChangeNotifier {
       sessionId: sessionId,
       files: source.files,
       changes: source.changes,
+      firebaseCapabilities: source.firebaseCapabilities,
     );
     lastSyncedSourceRevision = source.remoteRevision;
     final revision = source.remoteRevision;
