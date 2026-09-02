@@ -35,3 +35,21 @@ jobs:
         run: dart pub get
       - name: Analyze runner server
         run: dart analyze
+
+  serverpod-mini-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter version
+        run: flutter --version
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Install Serverpod CLI 3.4.13
+        run: dart pub global activate serverpod_cli 3.4.13
+      - name: Run real Serverpod Mini smoke test
+        run: flutter test tool/serverpod_mini_smoke_test.dart
