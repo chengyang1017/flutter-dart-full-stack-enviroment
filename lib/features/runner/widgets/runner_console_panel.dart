@@ -68,8 +68,8 @@ class RunnerConsolePanel extends StatelessWidget {
                     padding: const EdgeInsets.all(12),
                     child: Text(
                       runner.isMock
-                          ? 'Runner API 已接好，目前使用 Mock Runner。Phase 4 会把这里替换成真实 Flutter SDK 日志。'
-                          : 'Runner console is ready.',
+                          ? '当前使用 Mock Runner。启动 flutter-runner-server，并通过 --dart-define=RUNNER_API_URL=... 连接真实 Flutter SDK Runner。'
+                          : '真实 Flutter SDK Runner 已连接，运行日志会显示在这里。',
                       style: const TextStyle(
                         fontFamily: 'Consolas',
                         fontSize: 12,
