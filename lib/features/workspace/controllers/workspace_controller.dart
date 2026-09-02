@@ -4,14 +4,21 @@ import 'package:flutter/foundation.dart';
 
 import '../models/workspace_change.dart';
 import '../models/workspace_entry.dart';
+import '../models/workspace_snapshot.dart';
 
 class WorkspaceController extends ChangeNotifier {
   WorkspaceController._({
     required List<WorkspaceEntry> entries,
+    List<WorkspaceEntry>? baseEntries,
     required this.activePath,
+    List<String>? openFiles,
+    int nextId = 1,
   })  : _entries = {for (final entry in entries) entry.id: entry},
-        _baseEntries = {for (final entry in entries) entry.id: entry},
-        _openFiles = [activePath];
+        _baseEntries = {
+          for (final entry in baseEntries ?? entries) entry.id: entry,
+        },
+        _openFiles = List<String>.of(openFiles ?? <String>[activePath]),
+        _nextId = nextId;
 
   factory WorkspaceController.flutterPlayground({
     required String mainDartContent,
@@ -44,7 +51,27 @@ class WorkspaceController extends ChangeNotifier {
           id: 'file-pubspec',
           path: 'pubspec.yaml',
           type: WorkspaceEntryType.file,
-          content: '''name: flutter_practice\ndescription: Lightweight Flutter practice workspace.\npublish_to: none\n\nenvironment:\n  sdk: ^3.4.0\n\ndependencies:\n  flutter:\n    sdk: flutter\n\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^5.0.0\n\nflutter:\n  uses-material-design: true\n  assets:\n    - assets/\n''',
+          content: '''name: flutter_practice
+description: Lightweight Flutter practice workspace.
+publish_to: none
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+''',
         ),
         const WorkspaceEntry(
           id: 'file-analysis-options',
@@ -61,7 +88,7 @@ class WorkspaceController extends ChangeNotifier {
   final List<String> _openFiles;
 
   Timer? _contentNotificationDebounce;
-  int _nextId = 1;
+  int _nextId;
   String activePath;
 
   List<WorkspaceEntry> get entries {
@@ -150,6 +177,59 @@ class WorkspaceController extends ChangeNotifier {
     return List.unmodifiable(result);
   }
 
+  WorkspaceSnapshot createSnapshot() => WorkspaceSnapshot(
+        entries: List<WorkspaceEntry>.of(_entries.values),
+        baseEntries: List<WorkspaceEntry>.of(_baseEntries.values),
+        openFiles: List<String>.of(_openFiles),
+        activePath: activePath,
+        nextId: _nextId,
+        savedAt: DateTime.now().toUtc(),
+      );
+
+  void restoreSnapshot(WorkspaceSnapshot snapshot) {
+    _validateSnapshotEntries(snapshot.entries, label: 'entries');
+    _validateSnapshotEntries(snapshot.baseEntries, label: 'baseEntries');
+
+    _contentNotificationDebounce?.cancel();
+    _contentNotificationDebounce = null;
+
+    _entries
+      ..clear()
+      ..addEntries(snapshot.entries.map((entry) => MapEntry(entry.id, entry)));
+    _baseEntries
+      ..clear()
+      ..addEntries(
+        snapshot.baseEntries.map((entry) => MapEntry(entry.id, entry)),
+      );
+
+    final availableFiles = _entries.values
+        .where((entry) => entry.isFile)
+        .map((entry) => entry.path)
+        .toSet();
+
+    _openFiles
+      ..clear()
+      ..addAll(
+        snapshot.openFiles.where(availableFiles.contains).toSet(),
+      );
+
+    if (availableFiles.contains(snapshot.activePath)) {
+      activePath = snapshot.activePath;
+    } else if (_openFiles.isNotEmpty) {
+      activePath = _openFiles.last;
+    } else {
+      final fallback = availableFiles.toList()..sort();
+      activePath = fallback.isEmpty ? '' : fallback.first;
+    }
+
+    if (activePath.isNotEmpty && !_openFiles.contains(activePath)) {
+      _openFiles.add(activePath);
+    }
+
+    _nextId = snapshot.nextId > 0 ? snapshot.nextId : 1;
+    notifyListeners();
+  }
+
   List<WorkspaceEntry> childrenOf(String parentPath) {
     final children = _entries.values
         .where((entry) => entry.parentPath == parentPath)
@@ -195,16 +275,12 @@ class WorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Programmatic file updates notify immediately.
   void updateFileContent(String path, String content) {
     if (!_replaceFileContent(path, content)) return;
     _contentNotificationDebounce?.cancel();
     notifyListeners();
   }
 
-  /// Editor keystrokes update the model immediately but delay UI metadata
-  /// notifications slightly. This keeps dirty state/export data correct without
-  /// rebuilding the surrounding workspace tree for every single character.
   void updateFileContentFromEditor(String path, String content) {
     if (!_replaceFileContent(path, content)) return;
 
@@ -314,9 +390,8 @@ class WorkspaceController extends ChangeNotifier {
     }
 
     final separator = targetPath.lastIndexOf('/');
-    final targetParent = separator == -1
-        ? ''
-        : targetPath.substring(0, separator);
+    final targetParent =
+        separator == -1 ? '' : targetPath.substring(0, separator);
     if (targetParent.isNotEmpty) {
       _assertDirectory(targetParent);
     }
@@ -371,7 +446,8 @@ class WorkspaceController extends ChangeNotifier {
     _validatePath(target);
 
     final affected = _entries.values
-        .where((entry) => entry.path == source || entry.path.startsWith('$source/'))
+        .where((entry) =>
+            entry.path == source || entry.path.startsWith('$source/'))
         .toList();
     final affectedIds = affected.map((entry) => entry.id).toSet();
 
@@ -379,7 +455,8 @@ class WorkspaceController extends ChangeNotifier {
       final suffix = entry.path.substring(source.length);
       final nextPath = '$target$suffix';
       final collision = _entries.values.any(
-        (candidate) => !affectedIds.contains(candidate.id) && candidate.path == nextPath,
+        (candidate) =>
+            !affectedIds.contains(candidate.id) && candidate.path == nextPath,
       );
       if (collision) {
         throw ArgumentError('Path already exists: $nextPath');
@@ -409,6 +486,25 @@ class WorkspaceController extends ChangeNotifier {
     if (index != -1) _openFiles[index] = newPath;
   }
 
+  void _validateSnapshotEntries(
+    List<WorkspaceEntry> entries, {
+    required String label,
+  }) {
+    final ids = <String>{};
+    final paths = <String>{};
+    for (final entry in entries) {
+      _validatePath(entry.path);
+      if (!ids.add(entry.id)) {
+        throw FormatException('Duplicate workspace id in $label: ${entry.id}');
+      }
+      if (!paths.add(entry.path)) {
+        throw FormatException(
+          'Duplicate workspace path in $label: ${entry.path}',
+        );
+      }
+    }
+  }
+
   void _assertDirectory(String path) {
     final parent = entryAt(path);
     if (parent == null || !parent.isDirectory) {
@@ -426,8 +522,9 @@ class WorkspaceController extends ChangeNotifier {
     if (path.isEmpty || path.startsWith('/') || path.contains('\\')) {
       throw ArgumentError('Workspace paths must be relative POSIX paths.');
     }
-    if (path.split('/').any((segment) =>
-        segment.isEmpty || segment == '.' || segment == '..')) {
+    if (path.split('/').any(
+          (segment) => segment.isEmpty || segment == '.' || segment == '..',
+        )) {
       throw ArgumentError('Invalid workspace path: $path');
     }
   }
@@ -436,7 +533,9 @@ class WorkspaceController extends ChangeNotifier {
 
   String _join(String parent, String name) {
     final cleanName = name.trim();
-    if (cleanName.isEmpty || cleanName.contains('/') || cleanName.contains('\\')) {
+    if (cleanName.isEmpty ||
+        cleanName.contains('/') ||
+        cleanName.contains('\\')) {
       throw ArgumentError('Name must be a single path segment.');
     }
     return parent.isEmpty ? cleanName : '$parent/$cleanName';
