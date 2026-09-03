@@ -113,8 +113,10 @@ class WorkspaceProjectBar extends StatelessWidget {
                       switch (action) {
                         case _WorkspaceProjectAction.rename:
                           onRename();
+                          break;
                         case _WorkspaceProjectAction.delete:
                           onDelete();
+                          break;
                       }
                     },
                     itemBuilder: (context) => [
