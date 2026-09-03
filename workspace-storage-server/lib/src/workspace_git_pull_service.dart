@@ -22,6 +22,10 @@ class WorkspaceGitPullResult {
   final String provider;
   final String projectName;
   final String remoteHead;
+
+  /// UTF-8 text is returned as-is. Binary files use the same NUL-prefixed
+  /// base64 envelope as the Workspace Runner protocol so the JSON shape stays
+  /// backward compatible while preserving arbitrary bytes.
   final Map<String, String> files;
   final int importedFileCount;
   final int ignoredFileCount;
@@ -188,8 +192,9 @@ class WorkspaceGitPullService {
   });
 
   static const int maxImportedFiles = 3000;
-  static const int maxSingleTextFileBytes = 5 * 1024 * 1024;
-  static const int maxImportedTextBytes = 50 * 1024 * 1024;
+  static const int maxSinglePortableFileBytes = 5 * 1024 * 1024;
+  static const int maxImportedPortableBytes = 50 * 1024 * 1024;
+  static const String binaryFilePrefix = '\u0000workspace-base64:';
 
   static const Set<String> _ignoredDirectoryNames = <String>{
     '.git',
@@ -318,7 +323,7 @@ class WorkspaceGitPullService {
     for (final entry in repositoryFiles.entries) {
       final path = entry.key;
       if (path != 'pubspec.yaml' && !path.endsWith('/pubspec.yaml')) continue;
-      if (await entry.value.length() > maxSingleTextFileBytes) continue;
+      if (await entry.value.length() > maxSinglePortableFileBytes) continue;
       final pubspec = await _tryReadText(entry.value);
       if (pubspec == null || !_looksLikeFlutterPubspec(pubspec)) continue;
       final root = path == 'pubspec.yaml'
@@ -326,6 +331,8 @@ class WorkspaceGitPullService {
           : path.substring(0, path.length - '/pubspec.yaml'.length);
       final mainPath = root.isEmpty ? 'lib/main.dart' : '$root/lib/main.dart';
       if (!repositoryFiles.containsKey(mainPath)) continue;
+      final mainText = await _tryReadText(repositoryFiles[mainPath]!);
+      if (mainText == null) continue;
       candidates.add(root);
       pubspecs[root] = pubspec;
     }
@@ -345,9 +352,8 @@ class WorkspaceGitPullService {
 
     final root = candidates.single;
     final files = <String, String>{};
-    final binaryPaths = <String>[];
     var ignoredFileCount = 0;
-    var importedTextBytes = 0;
+    var importedBytes = 0;
 
     for (final entry in repositoryFiles.entries) {
       final relative = _relativeToRoot(entry.key, root);
@@ -363,40 +369,26 @@ class WorkspaceGitPullService {
       }
 
       final length = await entry.value.length();
-      if (length > maxSingleTextFileBytes) {
+      if (length > maxSinglePortableFileBytes) {
         throw FormatException(
-          'File is larger than the 5 MB text-file limit: $relative',
+          'File is larger than the 5 MB portable-file limit: $relative',
         );
       }
-      final content = await _tryReadText(entry.value);
-      if (content == null) {
-        binaryPaths.add(relative);
-        continue;
-      }
-      importedTextBytes += length;
-      if (importedTextBytes > maxImportedTextBytes) {
+      importedBytes += length;
+      if (importedBytes > maxImportedPortableBytes) {
         throw const FormatException(
-          'Git project contains more than 50 MB of portable text files.',
+          'Git project contains more than 50 MB of portable files.',
         );
       }
-      files[relative] = content;
+      files[relative] = await _readPortablePayload(entry.value);
     }
 
-    if (binaryPaths.isNotEmpty) {
-      binaryPaths.sort();
-      final shown = binaryPaths.take(8).join(', ');
-      final suffix = binaryPaths.length > 8
-          ? ' (+${binaryPaths.length - 8} more)'
-          : '';
-      throw FormatException(
-        'This Git project contains binary portable assets that the current '
-        'Workspace protocol cannot preserve yet: $shown$suffix',
-      );
-    }
     if (!files.containsKey('pubspec.yaml') ||
-        !files.containsKey('lib/main.dart')) {
+        !files.containsKey('lib/main.dart') ||
+        files['pubspec.yaml']!.startsWith(binaryFilePrefix) ||
+        files['lib/main.dart']!.startsWith(binaryFilePrefix)) {
       throw const FormatException(
-        'Pulled Flutter project must preserve pubspec.yaml and lib/main.dart.',
+        'Pulled Flutter project must preserve text pubspec.yaml and lib/main.dart.',
       );
     }
 
@@ -405,6 +397,18 @@ class WorkspaceGitPullService {
       files: Map<String, String>.unmodifiable(files),
       ignoredFileCount: ignoredFileCount,
     );
+  }
+
+  Future<String> _readPortablePayload(File file) async {
+    final bytes = await file.readAsBytes();
+    if (!bytes.any((value) => value == 0)) {
+      try {
+        return utf8.decode(bytes, allowMalformed: false);
+      } on FormatException {
+        // Fall through to binary encoding.
+      }
+    }
+    return '$binaryFilePrefix${base64Encode(bytes)}';
   }
 
   Future<String?> _tryReadText(File file) async {

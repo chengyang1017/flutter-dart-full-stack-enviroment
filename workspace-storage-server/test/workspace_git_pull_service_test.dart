@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -77,7 +78,8 @@ void main() {
     expect(result.files, isNot(contains('tools/readme.txt')));
   });
 
-  test('pull rejects binary assets instead of silently losing them', () async {
+  test('pull preserves binary portable assets with the binary envelope', () async {
+    final logoBytes = <int>[137, 80, 78, 71, 0, 1, 2, 3, 255];
     executor.populate = (root) async {
       await _write(
         root,
@@ -89,21 +91,22 @@ void main() {
         '${root.path}${Platform.pathSeparator}assets${Platform.pathSeparator}logo.png',
       );
       await asset.parent.create(recursive: true);
-      await asset.writeAsBytes(<int>[137, 80, 78, 71, 0, 1, 2, 3]);
+      await asset.writeAsBytes(logoBytes);
     };
 
-    await expectLater(
-      pullService.pull(
-        userId: 'alice',
-        workspaceId: 'workspace-a',
+    final result = await pullService.pull(
+      userId: 'alice',
+      workspaceId: 'workspace-a',
+    );
+
+    final payload = result.files['assets/logo.png'];
+    expect(payload, isNotNull);
+    expect(payload, startsWith(WorkspaceGitPullService.binaryFilePrefix));
+    expect(
+      base64Decode(
+        payload!.substring(WorkspaceGitPullService.binaryFilePrefix.length),
       ),
-      throwsA(
-        isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('binary portable assets'),
-        ),
-      ),
+      orderedEquals(logoBytes),
     );
   });
 }
@@ -161,7 +164,7 @@ Map<String, dynamic> _project() => <String, dynamic>{
     };
 
 Map<String, dynamic> _snapshot() => <String, dynamic>{
-      'formatVersion': 2,
+      'formatVersion': 3,
       'entries': <Object>[],
       'baseEntries': <Object>[],
       'openFiles': <Object>[],

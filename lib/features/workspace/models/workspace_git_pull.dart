@@ -18,6 +18,9 @@ class WorkspaceGitPullResult {
   final String provider;
   final String projectName;
   final String remoteHead;
+
+  /// Text files are raw UTF-8 strings. Binary files use the same guarded
+  /// NUL-prefixed base64 envelope as Workspace -> Runner transport.
   final Map<String, String> files;
   final int importedFileCount;
   final int ignoredFileCount;
@@ -50,16 +53,30 @@ class WorkspaceGitPullResult {
     final files = <String, String>{};
     for (final entry in rawFiles.entries) {
       if (entry.key is! String || entry.value is! String) {
-        throw const FormatException('Git pull files must contain UTF-8 text.');
+        throw const FormatException(
+          'Git pull files must contain encoded Workspace file payloads.',
+        );
       }
       final path = entry.key as String;
+      final payload = entry.value as String;
       _validatePortablePath(path);
-      files[path] = entry.value as String;
+      if (WorkspaceEntry.isRunnerBinaryContent(payload)) {
+        try {
+          WorkspaceEntry.decodeRunnerContent(payload);
+        } on FormatException {
+          throw FormatException('Git pull contains invalid binary file: $path');
+        }
+      }
+      files[path] = payload;
     }
     if (files.length != importedFileCount ||
         !files.containsKey('pubspec.yaml') ||
-        !files.containsKey('lib/main.dart')) {
-      throw const FormatException('Git pull response contains an invalid Flutter source set.');
+        !files.containsKey('lib/main.dart') ||
+        WorkspaceEntry.isRunnerBinaryContent(files['pubspec.yaml']!) ||
+        WorkspaceEntry.isRunnerBinaryContent(files['lib/main.dart']!)) {
+      throw const FormatException(
+        'Git pull response contains an invalid Flutter source set.',
+      );
     }
 
     return WorkspaceGitPullResult(
@@ -105,14 +122,25 @@ class WorkspaceGitPullResult {
       if (!path.contains('/')) rootDirectoryIds.add(id);
     }
     for (final path in filePaths) {
-      entries.add(
-        WorkspaceEntry(
-          id: 'git-pull-${++idCounter}',
-          path: path,
-          type: WorkspaceEntryType.file,
-          content: files[path]!,
-        ),
-      );
+      final payload = files[path]!;
+      if (WorkspaceEntry.isRunnerBinaryContent(payload)) {
+        entries.add(
+          WorkspaceEntry.binary(
+            id: 'git-pull-${++idCounter}',
+            path: path,
+            bytes: WorkspaceEntry.decodeRunnerContent(payload),
+          ),
+        );
+      } else {
+        entries.add(
+          WorkspaceEntry(
+            id: 'git-pull-${++idCounter}',
+            path: path,
+            type: WorkspaceEntryType.file,
+            content: payload,
+          ),
+        );
+      }
     }
 
     return WorkspaceSnapshot(
