@@ -139,13 +139,13 @@ class WorkspaceFileExplorer extends StatelessWidget {
         left: 28.0 + depth * 12,
         right: 2,
       ),
-      selected: workspace.activePath == entry.path,
+      selected: !entry.isBinary && workspace.activePath == entry.path,
       selectedTileColor: const Color(0xff242832),
       iconColor: _mutedIconColor,
       selectedColor: _entryTextColor,
       textColor: _entryTextColor,
       leading: Icon(
-        _fileIcon(entry.name),
+        entry.isBinary ? Icons.image_outlined : _fileIcon(entry.name),
         size: 17,
         color: _mutedIconColor,
       ),
@@ -153,7 +153,15 @@ class WorkspaceFileExplorer extends StatelessWidget {
         entry: entry,
         dirty: workspace.isFileDirty(entry.path),
       ),
-      onTap: () => onOpenFile(entry.path),
+      subtitle: entry.isBinary
+          ? const Text(
+              'Binary asset · preserved, not editable',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, color: Color(0xff7f8898)),
+            )
+          : null,
+      onTap: () => _openFile(context, entry),
       trailing: _EntryMenu(
         onRename: () => _rename(context, entry),
         onDelete: () => _delete(context, entry),
@@ -161,6 +169,20 @@ class WorkspaceFileExplorer extends StatelessWidget {
     );
 
     return _draggable(entry, tile);
+  }
+
+  void _openFile(BuildContext context, WorkspaceEntry entry) {
+    if (!entry.isBinary) {
+      onOpenFile(entry.path);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${entry.name} 是二进制资源。Workspace 会原样保存、运行和导出，但不会在代码编辑器中把它当文本打开。',
+        ),
+      ),
+    );
   }
 
   Widget _draggable(WorkspaceEntry entry, Widget child) {
@@ -175,7 +197,11 @@ class WorkspaceFileExplorer extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                entry.isDirectory ? Icons.folder_outlined : _fileIcon(entry.name),
+                entry.isDirectory
+                    ? Icons.folder_outlined
+                    : entry.isBinary
+                        ? Icons.image_outlined
+                        : _fileIcon(entry.name),
                 size: 16,
                 color: Colors.white70,
               ),
