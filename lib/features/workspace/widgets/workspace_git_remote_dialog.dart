@@ -50,7 +50,6 @@ class _WorkspaceGitRemoteDialogState extends State<WorkspaceGitRemoteDialog> {
         repositoryUrl: _repositoryController.text,
         remoteName: _remoteNameController.text,
         branch: _branchController.text,
-        clearLastSyncedHead: false,
       );
       Navigator.pop(context, WorkspaceGitRemoteDialogResult.bind(remote));
     } on FormatException catch (error) {
