@@ -1,4 +1,5 @@
 import 'workspace_capability.dart';
+import 'workspace_git_remote.dart';
 
 enum WorkspaceProjectKind {
   practice,
@@ -20,6 +21,7 @@ class WorkspaceProject {
     required this.updatedAt,
     this.lifecycle = WorkspaceLifecycle.saved,
     this.firebaseCapabilities = const <FirebaseCapability>{},
+    this.gitRemote,
   });
 
   final String id;
@@ -30,12 +32,15 @@ class WorkspaceProject {
   final DateTime createdAt;
   final DateTime updatedAt;
   final Set<FirebaseCapability> firebaseCapabilities;
+  final WorkspaceGitRemote? gitRemote;
 
   WorkspaceProject copyWith({
     String? name,
     WorkspaceLifecycle? lifecycle,
     DateTime? updatedAt,
     Set<FirebaseCapability>? firebaseCapabilities,
+    WorkspaceGitRemote? gitRemote,
+    bool clearGitRemote = false,
   }) {
     return WorkspaceProject(
       id: id,
@@ -46,6 +51,7 @@ class WorkspaceProject {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       firebaseCapabilities: firebaseCapabilities ?? this.firebaseCapabilities,
+      gitRemote: clearGitRemote ? null : gitRemote ?? this.gitRemote,
     );
   }
 
@@ -60,6 +66,7 @@ class WorkspaceProject {
         'firebaseCapabilities': FirebaseCapabilityCodec.encode(
           firebaseCapabilities,
         ),
+        if (gitRemote != null) 'gitRemote': gitRemote!.toJson(),
       };
 
   factory WorkspaceProject.fromJson(Map<dynamic, dynamic> json) {
@@ -84,6 +91,14 @@ class WorkspaceProject {
       orElse: () => WorkspaceLifecycle.saved,
     );
 
+    WorkspaceGitRemote? readGitRemote(Object? value) {
+      if (value == null) return null;
+      if (value is! Map) {
+        throw const FormatException('Invalid Workspace Git remote metadata.');
+      }
+      return WorkspaceGitRemote.fromJson(value);
+    }
+
     DateTime readDate(dynamic value) => value is String
         ? DateTime.tryParse(value)?.toUtc() ?? DateTime.now().toUtc()
         : DateTime.now().toUtc();
@@ -99,6 +114,7 @@ class WorkspaceProject {
       firebaseCapabilities: FirebaseCapabilityCodec.decode(
         json['firebaseCapabilities'],
       ),
+      gitRemote: readGitRemote(json['gitRemote']),
     );
   }
 }
