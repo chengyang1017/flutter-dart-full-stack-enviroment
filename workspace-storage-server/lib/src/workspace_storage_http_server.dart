@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'workspace_authenticator.dart';
 import 'workspace_git_pull_service.dart';
+import 'workspace_git_push_service.dart';
 import 'workspace_git_remote_checker.dart';
 import 'workspace_secret_store.dart';
 import 'workspace_store.dart';
@@ -14,6 +15,7 @@ class WorkspaceStorageHttpServer {
     required this.authenticator,
     WorkspaceGitRemoteChecker? gitRemoteChecker,
     WorkspaceGitPullService? gitPullService,
+    WorkspaceGitPushService? gitPushService,
     this.allowedOrigin = '*',
   })  : store = store,
         secretStore = secretStore,
@@ -28,12 +30,20 @@ class WorkspaceStorageHttpServer {
               workspaceStore: store,
               secretStore: secretStore,
               executor: const ProcessWorkspaceGitCloneExecutor(),
+            ),
+        gitPushService = gitPushService ??
+            WorkspaceGitPushService(
+              workspaceStore: store,
+              secretStore: secretStore,
+              cloneExecutor: const ProcessWorkspaceGitCloneExecutor(),
+              pushExecutor: const ProcessWorkspaceGitPushCommandExecutor(),
             );
 
   final FileWorkspaceStore store;
   final FileWorkspaceSecretStore secretStore;
   final WorkspaceGitRemoteChecker gitRemoteChecker;
   final WorkspaceGitPullService gitPullService;
+  final WorkspaceGitPushService gitPushService;
   final WorkspaceAuthenticator authenticator;
   final String allowedOrigin;
 
@@ -102,25 +112,13 @@ class WorkspaceStorageHttpServer {
           segments[2] == 'git' &&
           segments[3] == 'check' &&
           request.method == 'POST') {
-        final workspaceId = segments[1];
-        if (workspaceId.isEmpty) {
-          throw const FormatException('Workspace id is required.');
-        }
+        final workspaceId = _readWorkspaceIdFromRoute(segments[1]);
         final body = await _readJsonObject(request);
-        final secretName = body['secretName'];
-        final username = body['username'];
-        if (secretName != null && secretName is! String) {
-          throw const FormatException('secretName must be a string.');
-        }
-        if (username != null && username is! String) {
-          throw const FormatException('username must be a string.');
-        }
-
         final result = await gitRemoteChecker.check(
           userId: userId,
           workspaceId: workspaceId,
-          secretName: secretName as String?,
-          username: username as String?,
+          secretName: _readOptionalString(body, 'secretName'),
+          username: _readOptionalString(body, 'username'),
         );
         await _sendJson(request.response, HttpStatus.ok, result.toJson());
         return;
@@ -130,35 +128,44 @@ class WorkspaceStorageHttpServer {
           segments[2] == 'git' &&
           segments[3] == 'pull' &&
           request.method == 'POST') {
-        final workspaceId = segments[1];
-        if (workspaceId.isEmpty) {
-          throw const FormatException('Workspace id is required.');
-        }
+        final workspaceId = _readWorkspaceIdFromRoute(segments[1]);
         final body = await _readJsonObject(request);
-        final secretName = body['secretName'];
-        final username = body['username'];
-        if (secretName != null && secretName is! String) {
-          throw const FormatException('secretName must be a string.');
-        }
-        if (username != null && username is! String) {
-          throw const FormatException('username must be a string.');
-        }
-
         final result = await gitPullService.pull(
           userId: userId,
           workspaceId: workspaceId,
-          secretName: secretName as String?,
-          username: username as String?,
+          secretName: _readOptionalString(body, 'secretName'),
+          username: _readOptionalString(body, 'username'),
+        );
+        await _sendJson(request.response, HttpStatus.ok, result.toJson());
+        return;
+      }
+
+      if (segments.length == 4 &&
+          segments[2] == 'git' &&
+          segments[3] == 'push' &&
+          request.method == 'POST') {
+        final workspaceId = _readWorkspaceIdFromRoute(segments[1]);
+        final body = await _readJsonObject(request);
+        final result = await gitPushService.push(
+          userId: userId,
+          workspaceId: workspaceId,
+          expectedWorkspaceRevision: _readRequiredString(
+            body,
+            'expectedWorkspaceRevision',
+          ),
+          expectedRemoteHead: _readRequiredString(body, 'expectedRemoteHead'),
+          commitMessage: _readRequiredString(body, 'commitMessage'),
+          authorName: _readRequiredString(body, 'authorName'),
+          authorEmail: _readRequiredString(body, 'authorEmail'),
+          secretName: _readOptionalString(body, 'secretName'),
+          username: _readOptionalString(body, 'username'),
         );
         await _sendJson(request.response, HttpStatus.ok, result.toJson());
         return;
       }
 
       if (segments.length >= 3 && segments[2] == 'secrets') {
-        final workspaceId = segments[1];
-        if (workspaceId.isEmpty) {
-          throw const FormatException('Workspace id is required.');
-        }
+        final workspaceId = _readWorkspaceIdFromRoute(segments[1]);
         final workspace = await store.loadWorkspace(userId, workspaceId);
         if (workspace == null) {
           await _sendError(
@@ -234,10 +241,7 @@ class WorkspaceStorageHttpServer {
         return;
       }
 
-      final workspaceId = segments[1];
-      if (workspaceId.isEmpty) {
-        throw const FormatException('Workspace id is required.');
-      }
+      final workspaceId = _readWorkspaceIdFromRoute(segments[1]);
 
       if (request.method == 'GET') {
         final document = await store.loadWorkspace(userId, workspaceId);
@@ -297,6 +301,17 @@ class WorkspaceStorageHttpServer {
           'actualRevision': error.actualRevision,
         },
       );
+    } on WorkspaceGitHeadMismatch catch (error) {
+      await _sendJson(
+        request.response,
+        HttpStatus.conflict,
+        <String, Object?>{
+          'code': 'git_remote_conflict',
+          'workspaceId': error.workspaceId,
+          'expectedRemoteHead': error.expectedRemoteHead,
+          'actualRemoteHead': error.actualRemoteHead,
+        },
+      );
     } on WorkspaceDocumentNotFound catch (error) {
       await _sendError(
         request.response,
@@ -351,6 +366,30 @@ class WorkspaceStorageHttpServer {
       throw FormatException('$key must be a JSON object.');
     }
     return Map<String, dynamic>.from(value);
+  }
+
+  String _readWorkspaceIdFromRoute(String value) {
+    if (value.isEmpty) {
+      throw const FormatException('Workspace id is required.');
+    }
+    return value;
+  }
+
+  String _readRequiredString(Map<String, dynamic> body, String key) {
+    final value = body[key];
+    if (value is! String || value.trim().isEmpty) {
+      throw FormatException('$key is required.');
+    }
+    return value;
+  }
+
+  String? _readOptionalString(Map<String, dynamic> body, String key) {
+    final value = body[key];
+    if (value == null) return null;
+    if (value is! String) {
+      throw FormatException('$key must be a string.');
+    }
+    return value;
   }
 
   String _readRevision(Map<String, dynamic> body) {

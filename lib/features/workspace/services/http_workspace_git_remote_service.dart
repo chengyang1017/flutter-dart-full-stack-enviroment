@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/workspace_git_pull.dart';
+import '../models/workspace_git_push.dart';
 import '../models/workspace_git_remote_check.dart';
+import '../models/workspace_remote_models.dart';
 import 'workspace_git_remote_service.dart';
 
 class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
@@ -26,8 +28,10 @@ class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
     final body = await _postGitAction(
       workspaceId: workspaceId,
       action: 'check',
-      secretName: secretName,
-      username: username,
+      requestBody: _credentialReferenceBody(
+        secretName: secretName,
+        username: username,
+      ),
       fallbackError: 'Git remote check failed.',
     );
     return WorkspaceGitRemoteCheckResult.fromJson(body);
@@ -42,19 +46,50 @@ class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
     final body = await _postGitAction(
       workspaceId: workspaceId,
       action: 'pull',
-      secretName: secretName,
-      username: username,
+      requestBody: _credentialReferenceBody(
+        secretName: secretName,
+        username: username,
+      ),
       fallbackError: 'Git pull failed.',
     );
     return WorkspaceGitPullResult.fromJson(body);
   }
 
+  @override
+  Future<WorkspaceGitPushResult> pushRemote({
+    required String workspaceId,
+    required String expectedWorkspaceRevision,
+    required String expectedRemoteHead,
+    required String commitMessage,
+    required String authorName,
+    required String authorEmail,
+    String? secretName,
+    String? username,
+  }) async {
+    final body = await _postGitAction(
+      workspaceId: workspaceId,
+      action: 'push',
+      requestBody: <String, dynamic>{
+        'expectedWorkspaceRevision': expectedWorkspaceRevision,
+        'expectedRemoteHead': expectedRemoteHead,
+        'commitMessage': commitMessage,
+        'authorName': authorName,
+        'authorEmail': authorEmail,
+        ..._credentialReferenceBody(
+          secretName: secretName,
+          username: username,
+        ),
+      },
+      fallbackError: 'Git push failed.',
+    );
+    return WorkspaceGitPushResult.fromJson(body);
+  }
+
   Future<Map<String, dynamic>> _postGitAction({
     required String workspaceId,
     required String action,
+    required Map<String, dynamic> requestBody,
     required String fallbackError,
-    String? secretName,
-    String? username,
   }) async {
     final response = await _client.post(
       _uri(<String>['workspaces', workspaceId, 'git', action]),
@@ -63,22 +98,64 @@ class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
         'authorization': 'Bearer $accessToken',
         'content-type': 'application/json',
       },
-      body: jsonEncode(<String, dynamic>{
-        if (secretName?.trim().isNotEmpty == true)
-          'secretName': secretName!.trim(),
-        if (username?.trim().isNotEmpty == true) 'username': username!.trim(),
-      }),
+      body: jsonEncode(requestBody),
     );
 
     final body = _decodeObject(response);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final error = body['error'];
-      throw WorkspaceGitRemoteRequestException(
-        statusCode: response.statusCode,
-        message: error is String && error.isNotEmpty ? error : fallbackError,
-      );
-    }
+    _ensureSuccess(response, body, fallbackError);
     return body;
+  }
+
+  Map<String, dynamic> _credentialReferenceBody({
+    String? secretName,
+    String? username,
+  }) {
+    return <String, dynamic>{
+      if (secretName?.trim().isNotEmpty == true)
+        'secretName': secretName!.trim(),
+      if (username?.trim().isNotEmpty == true) 'username': username!.trim(),
+    };
+  }
+
+  void _ensureSuccess(
+    http.Response response,
+    Map<String, dynamic> body,
+    String fallbackError,
+  ) {
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+
+    if (response.statusCode == 409) {
+      final code = body['code'];
+      final workspaceId = body['workspaceId'];
+      if (code == 'git_remote_conflict') {
+        final expected = body['expectedRemoteHead'];
+        final actual = body['actualRemoteHead'];
+        if (workspaceId is String && expected is String && actual is String) {
+          throw WorkspaceGitRemoteHeadConflict(
+            workspaceId: workspaceId,
+            expectedRemoteHead: expected,
+            actualRemoteHead: actual,
+          );
+        }
+      }
+      if (code == 'revision_conflict') {
+        final expected = body['expectedRevision'];
+        final actual = body['actualRevision'];
+        if (workspaceId is String && expected is String && actual is String) {
+          throw WorkspaceRevisionConflict(
+            workspaceId: workspaceId,
+            expectedRevision: expected,
+            actualRevision: actual,
+          );
+        }
+      }
+    }
+
+    final error = body['error'];
+    throw WorkspaceGitRemoteRequestException(
+      statusCode: response.statusCode,
+      message: error is String && error.isNotEmpty ? error : fallbackError,
+    );
   }
 
   Uri _uri(List<String> segments) {

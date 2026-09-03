@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_ui_playground/features/workspace/controllers/workspace_controller.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_git_pull.dart';
+import 'package:flutter_ui_playground/features/workspace/models/workspace_git_push.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_git_remote.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_git_remote_check.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_project.dart';
@@ -166,6 +167,20 @@ class _FakeGitRemoteService implements WorkspaceGitRemoteService {
   @override
   Future<WorkspaceGitRemoteCheckResult> checkRemote({
     required String workspaceId,
+    String? secretName,
+    String? username,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<WorkspaceGitPushResult> pushRemote({
+    required String workspaceId,
+    required String expectedWorkspaceRevision,
+    required String expectedRemoteHead,
+    required String commitMessage,
+    required String authorName,
+    required String authorEmail,
     String? secretName,
     String? username,
   }) {
