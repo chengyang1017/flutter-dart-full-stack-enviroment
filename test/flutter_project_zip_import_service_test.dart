@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_ui_playground/features/playground/controllers/playground_controller.dart';
 import 'package:flutter_ui_playground/features/project_import/services/flutter_project_zip_import_service.dart';
+import 'package:flutter_ui_playground/features/workspace/models/workspace_entry.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_project.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_snapshot.dart';
 import 'package:flutter_ui_playground/features/workspace/services/keyed_workspace_snapshot_store.dart';
@@ -114,9 +115,11 @@ flutter:
     controller.dispose();
   });
 
-  test('rejects binary portable assets instead of silently dropping them', () {
-    final bytes = _zip(<String, List<int>>{
-      'app/pubspec.yaml': _text('''
+  test('preserves binary portable assets through snapshot serialization', () {
+    final logoBytes = <int>[0, 137, 80, 78, 71, 1, 2, 3, 255];
+    final bundle = service.parse(
+      _zip(<String, List<int>>{
+        'app/pubspec.yaml': _text('''
 name: binary_app
 dependencies:
   flutter:
@@ -125,20 +128,25 @@ flutter:
   assets:
     - assets/
 '''),
-      'app/lib/main.dart': _text('void main() {}\n'),
-      'app/assets/logo.png': <int>[0, 137, 80, 78, 71, 1, 2, 3],
-    });
-
-    expect(
-      () => service.parse(bytes),
-      throwsA(
-        isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('assets/logo.png'),
-        ),
-      ),
+        'app/lib/main.dart': _text('void main() {}\n'),
+        'app/assets/logo.png': logoBytes,
+      }),
     );
+
+    expect(bundle.importedFileCount, 3);
+    final asset = bundle.snapshot.entries.singleWhere(
+      (entry) => entry.path == 'assets/logo.png',
+    );
+    expect(asset.isBinary, isTrue);
+    expect(asset.encoding, WorkspaceFileEncoding.base64);
+    expect(asset.bytes, orderedEquals(logoBytes));
+
+    final reopened = WorkspaceSnapshot.fromJson(bundle.snapshot.toJson());
+    final reopenedAsset = reopened.entries.singleWhere(
+      (entry) => entry.path == 'assets/logo.png',
+    );
+    expect(reopenedAsset.isBinary, isTrue);
+    expect(reopenedAsset.bytes, orderedEquals(logoBytes));
   });
 
   test('rejects ZIPs containing multiple runnable Flutter projects', () {
