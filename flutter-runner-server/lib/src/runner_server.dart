@@ -1,11 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'runner_authenticator.dart';
 import 'runner_session.dart';
 import 'session_manager.dart';
 
 class RunnerServer {
-  RunnerServer({required this.manager, this.allowedOrigin = '*'});
+  RunnerServer({
+    required this.manager,
+    required this.authenticator,
+    this.allowedOrigin = '*',
+  });
 
   static const _supportedFirebaseCapabilities = <String>{
     'auth',
@@ -16,7 +21,9 @@ class RunnerServer {
   };
 
   final SessionManager manager;
+  final RunnerAuthenticator authenticator;
   final String allowedOrigin;
+  final Map<String, String> _sessionOwners = <String, String>{};
 
   Future<void> handle(HttpRequest request) async {
     if (request.method == 'OPTIONS') {
@@ -41,11 +48,22 @@ class RunnerServer {
         return;
       }
 
+      final userId = await authenticator.authenticate(request);
+      if (userId == null) {
+        await _sendError(
+          request.response,
+          HttpStatus.unauthorized,
+          'Authentication required.',
+        );
+        return;
+      }
+
       if (segments.length == 1 && request.method == 'POST') {
         final body = await _readJsonObject(request);
         final files = _readFiles(body['files']);
         final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
         final session = await manager.createSession(files);
+        _sessionOwners[session.id] = userId;
         session.setFirebaseCapabilities(capabilities ?? const <String>{});
         await _sendJson(
           request.response,
@@ -62,7 +80,7 @@ class RunnerServer {
 
       final sessionId = segments[1];
       if (segments.length == 2 && request.method == 'GET') {
-        final session = manager.requireSession(sessionId);
+        final session = _requireOwnedSession(sessionId, userId);
         session.touch();
         final afterLog = int.tryParse(
               request.uri.queryParameters['afterLog'] ?? '0',
@@ -82,8 +100,9 @@ class RunnerServer {
       }
 
       if (segments.length == 2 && request.method == 'DELETE') {
-        manager.requireSession(sessionId);
+        _requireOwnedSession(sessionId, userId);
         await manager.disposeSession(sessionId);
+        _sessionOwners.remove(sessionId);
         await _sendEmpty(request.response, HttpStatus.noContent);
         return;
       }
@@ -91,7 +110,7 @@ class RunnerServer {
       if (segments.length == 3 &&
           segments[2] == 'workspace' &&
           request.method == 'PUT') {
-        final session = manager.requireSession(sessionId);
+        final session = _requireOwnedSession(sessionId, userId);
         final body = await _readJsonObject(request);
         final files = _readFiles(body['files']);
         final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
@@ -108,7 +127,7 @@ class RunnerServer {
       }
 
       if (segments.length == 3 && request.method == 'POST') {
-        final session = manager.requireSession(sessionId);
+        final session = _requireOwnedSession(sessionId, userId);
         switch (segments[2]) {
           case 'run':
             await manager.run(session);
@@ -144,6 +163,18 @@ class RunnerServer {
         HttpStatus.internalServerError,
         error.toString(),
       );
+    }
+  }
+
+  RunnerSession _requireOwnedSession(String sessionId, String userId) {
+    if (_sessionOwners[sessionId] != userId) {
+      throw RunnerSessionNotFound(sessionId);
+    }
+    try {
+      return manager.requireSession(sessionId);
+    } on RunnerSessionNotFound {
+      _sessionOwners.remove(sessionId);
+      rethrow;
     }
   }
 
@@ -230,7 +261,7 @@ class RunnerServer {
     );
     response.headers.set(
       'access-control-allow-headers',
-      'content-type, accept',
+      'authorization, content-type, accept',
     );
     response.headers.set('cache-control', 'no-store');
   }

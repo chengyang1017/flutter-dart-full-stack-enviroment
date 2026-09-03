@@ -12,12 +12,14 @@ import 'flutter_runner_client.dart';
 class HttpFlutterRunnerClient implements FlutterRunnerClient {
   HttpFlutterRunnerClient({
     required String baseUrl,
+    this.accessToken = const String.fromEnvironment('RUNNER_API_TOKEN'),
     http.Client? httpClient,
     this.pollInterval = const Duration(milliseconds: 350),
   })  : baseUrl = baseUrl.replaceFirst(RegExp(r'/+$'), ''),
         _http = httpClient ?? http.Client();
 
   final String baseUrl;
+  final String accessToken;
   final Duration pollInterval;
   final http.Client _http;
   final Set<String> _disposedSessions = <String>{};
@@ -35,7 +37,7 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
   }) async {
     final response = await _http.post(
       _uri('/sessions'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'files': files,
         'firebaseCapabilities': FirebaseCapabilityCodec.encode(
@@ -58,6 +60,7 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
     while (!_disposedSessions.contains(sessionId)) {
       final response = await _http.get(
         _uri('/sessions/$sessionId', {'afterLog': '$logCursor'}),
+        headers: _headers(),
       );
 
       if (_disposedSessions.contains(sessionId)) return;
@@ -106,7 +109,7 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
   }) async {
     final response = await _http.put(
       _uri('/sessions/$sessionId/workspace'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
       body: jsonEncode({
         'files': files,
         'firebaseCapabilities': FirebaseCapabilityCodec.encode(
@@ -144,7 +147,10 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
   @override
   Future<void> disposeSession(String sessionId) async {
     _disposedSessions.add(sessionId);
-    final response = await _http.delete(_uri('/sessions/$sessionId'));
+    final response = await _http.delete(
+      _uri('/sessions/$sessionId'),
+      headers: _headers(),
+    );
     if (response.statusCode != 404) {
       _decodeObject(response, expected: const {200, 204});
     }
@@ -153,7 +159,7 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
   Future<void> _postAction(String sessionId, String action) async {
     final response = await _http.post(
       _uri('/sessions/$sessionId/$action'),
-      headers: _jsonHeaders,
+      headers: _headers(json: true),
     );
     _decodeObject(response, expected: const {200, 202});
   }
@@ -162,6 +168,13 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
     final uri = Uri.parse('$baseUrl$path');
     return query == null ? uri : uri.replace(queryParameters: query);
   }
+
+  Map<String, String> _headers({bool json = false}) => <String, String>{
+        'accept': 'application/json',
+        if (json) 'content-type': 'application/json',
+        if (accessToken.trim().isNotEmpty)
+          'authorization': 'Bearer ${accessToken.trim()}',
+      };
 
   Map<String, dynamic> _decodeObject(
     http.Response response, {
@@ -187,11 +200,6 @@ class HttpFlutterRunnerClient implements FlutterRunnerClient {
     }
     return Map<String, dynamic>.from(decoded);
   }
-
-  static const _jsonHeaders = <String, String>{
-    'content-type': 'application/json',
-    'accept': 'application/json',
-  };
 }
 
 class RunnerHttpException implements Exception {
