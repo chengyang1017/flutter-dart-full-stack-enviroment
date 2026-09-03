@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/workspace_git_pull.dart';
+import '../models/workspace_git_push.dart';
 import '../models/workspace_git_remote_check.dart';
 import '../models/workspace_project.dart';
 import '../models/workspace_secret.dart';
@@ -19,6 +20,26 @@ typedef WorkspaceGitPuller = Future<WorkspaceGitPullResult> Function({
   String? username,
   bool allowDirtyOverwrite,
 });
+typedef WorkspaceGitPusher = Future<WorkspaceGitPushResult> Function({
+  required String commitMessage,
+  required String authorName,
+  required String authorEmail,
+  String? secretName,
+  String? username,
+});
+
+class WorkspaceGitDialogResult {
+  const WorkspaceGitDialogResult.pull(WorkspaceGitPullResult result)
+      : pullResult = result,
+        pushResult = null;
+
+  const WorkspaceGitDialogResult.push(WorkspaceGitPushResult result)
+      : pullResult = null,
+        pushResult = result;
+
+  final WorkspaceGitPullResult? pullResult;
+  final WorkspaceGitPushResult? pushResult;
+}
 
 class WorkspaceGitConnectionDialog extends StatefulWidget {
   const WorkspaceGitConnectionDialog({
@@ -27,6 +48,7 @@ class WorkspaceGitConnectionDialog extends StatefulWidget {
     required this.loadSecrets,
     required this.checkConnection,
     required this.pullRemote,
+    required this.pushRemote,
     required this.hasLocalChanges,
     required this.onEditRemote,
   });
@@ -35,6 +57,7 @@ class WorkspaceGitConnectionDialog extends StatefulWidget {
   final WorkspaceGitSecretLoader loadSecrets;
   final WorkspaceGitConnectionChecker checkConnection;
   final WorkspaceGitPuller pullRemote;
+  final WorkspaceGitPusher pushRemote;
   final bool hasLocalChanges;
   final VoidCallback onEditRemote;
 
@@ -48,6 +71,9 @@ class _WorkspaceGitConnectionDialogState
   final TextEditingController _secretNameController = TextEditingController();
   final TextEditingController _secretValueController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _commitMessageController = TextEditingController();
+  final TextEditingController _authorNameController = TextEditingController();
+  final TextEditingController _authorEmailController = TextEditingController();
 
   List<WorkspaceSecretMetadata> _secrets = const [];
   WorkspaceGitRemoteCheckResult? _result;
@@ -55,9 +81,10 @@ class _WorkspaceGitConnectionDialogState
   bool _loadingSecrets = true;
   bool _checking = false;
   bool _pulling = false;
+  bool _pushing = false;
   bool _showSecret = false;
 
-  bool get _busy => _checking || _pulling;
+  bool get _busy => _checking || _pulling || _pushing;
 
   @override
   void initState() {
@@ -70,6 +97,9 @@ class _WorkspaceGitConnectionDialogState
     _secretNameController.dispose();
     _secretValueController.dispose();
     _usernameController.dispose();
+    _commitMessageController.dispose();
+    _authorNameController.dispose();
+    _authorEmailController.dispose();
     super.dispose();
   }
 
@@ -105,9 +135,49 @@ class _WorkspaceGitConnectionDialogState
     );
   }
 
+  ({String commitMessage, String authorName, String authorEmail}) _pushInput() {
+    final commitMessage = _commitMessageController.text.trim();
+    final authorName = _authorNameController.text.trim();
+    final authorEmail = _authorEmailController.text.trim();
+
+    if (commitMessage.isEmpty) {
+      throw const FormatException('Commit message 不能为空。');
+    }
+    if (commitMessage.length > 200) {
+      throw const FormatException('Commit message 最多 200 个字符。');
+    }
+    if (authorName.isEmpty) {
+      throw const FormatException('Author name 不能为空。');
+    }
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(authorEmail)) {
+      throw const FormatException('请输入有效的 Author email。');
+    }
+
+    return (
+      commitMessage: commitMessage,
+      authorName: authorName,
+      authorEmail: authorEmail,
+    );
+  }
+
   void _rememberSavedSecret(WorkspaceSecretMetadata? saved) {
     if (saved == null || _secrets.any((item) => item.name == saved.name)) return;
     _secrets = [..._secrets, saved]..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  Future<void> _saveNewCredentialIfNeeded(
+    ({String? secretName, String? secretValue, String? username}) input,
+  ) async {
+    if (input.secretValue == null) return;
+    final checked = await widget.checkConnection(
+      secretName: input.secretName,
+      secretValue: input.secretValue,
+      username: input.username,
+    );
+    if (!mounted) return;
+    _secretValueController.clear();
+    _result = checked.result;
+    _rememberSavedSecret(checked.savedSecret);
   }
 
   Future<void> _check() async {
@@ -172,7 +242,7 @@ class _WorkspaceGitConnectionDialogState
           title: const Text('用 Git 远端覆盖本地修改？'),
           content: const Text(
             '当前 Workspace 有尚未提交的本地修改。Pull 会用远端分支内容替换当前 Workspace。'
-            '如果这些修改还需要，请先导出或之后使用 Commit + Push。',
+            '如果这些修改还需要，请先导出或使用 Commit + Push。',
           ),
           actions: [
             TextButton(
@@ -197,19 +267,8 @@ class _WorkspaceGitConnectionDialogState
     });
 
     try {
-      // A newly typed token has not reached the vault yet. Reuse the check
-      // path to save it securely before asking the pull endpoint to resolve it.
-      if (input.secretValue != null) {
-        final checked = await widget.checkConnection(
-          secretName: input.secretName,
-          secretValue: input.secretValue,
-          username: input.username,
-        );
-        if (!mounted) return;
-        _secretValueController.clear();
-        _result = checked.result;
-        _rememberSavedSecret(checked.savedSecret);
-      }
+      await _saveNewCredentialIfNeeded(input);
+      if (!mounted) return;
 
       final pulled = await widget.pullRemote(
         secretName: input.secretName,
@@ -217,7 +276,7 @@ class _WorkspaceGitConnectionDialogState
         allowDirtyOverwrite: allowDirtyOverwrite,
       );
       if (!mounted) return;
-      Navigator.pop(context, pulled);
+      Navigator.pop(context, WorkspaceGitDialogResult.pull(pulled));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -227,9 +286,56 @@ class _WorkspaceGitConnectionDialogState
     }
   }
 
+  Future<void> _push() async {
+    if (_busy || !widget.hasLocalChanges) return;
+    if (widget.project.gitRemote?.lastSyncedHead == null) {
+      setState(() {
+        _errorText = '第一次 Push 前必须先 Pull，以建立可信的远端 HEAD。';
+      });
+      return;
+    }
+
+    late final ({String? secretName, String? secretValue, String? username}) credential;
+    late final ({String commitMessage, String authorName, String authorEmail}) commit;
+    try {
+      credential = _credentialInput();
+      commit = _pushInput();
+    } on FormatException catch (error) {
+      setState(() => _errorText = error.message);
+      return;
+    }
+
+    setState(() {
+      _pushing = true;
+      _errorText = null;
+    });
+
+    try {
+      await _saveNewCredentialIfNeeded(credential);
+      if (!mounted) return;
+
+      final pushed = await widget.pushRemote(
+        commitMessage: commit.commitMessage,
+        authorName: commit.authorName,
+        authorEmail: commit.authorEmail,
+        secretName: credential.secretName,
+        username: credential.username,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, WorkspaceGitDialogResult.push(pushed));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _pushing = false;
+        _errorText = 'Git Push 失败：$error';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final remote = widget.project.gitRemote!;
+    final trustedHead = remote.lastSyncedHead;
 
     return AlertDialog(
       title: const Text('Git 连接'),
@@ -247,6 +353,13 @@ class _WorkspaceGitConnectionDialogState
               ),
               const SizedBox(height: 4),
               Text('${remote.remoteName} · ${remote.branch}'),
+              const SizedBox(height: 4),
+              Text(
+                trustedHead == null
+                    ? '尚未建立可信 HEAD：第一次 Push 前请先 Pull。'
+                    : '可信 HEAD：${trustedHead.length <= 12 ? trustedHead : trustedHead.substring(0, 12)}',
+                key: const ValueKey('workspace-git-trusted-head'),
+              ),
               const SizedBox(height: 16),
               Text(
                 'Git 凭据',
@@ -328,6 +441,55 @@ class _WorkspaceGitConnectionDialogState
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 18),
+              Text(
+                'Commit + Push',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                !widget.hasLocalChanges
+                    ? '当前 Workspace 没有需要 Push 的本地修改。'
+                    : trustedHead == null
+                        ? '先 Pull 一次，建立可信远端 HEAD 后才能安全 Push。'
+                        : 'Push 会同时校验 Cloud revision 和远端 HEAD；任何一边发生变化都会阻止覆盖。',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('workspace-git-commit-message'),
+                controller: _commitMessageController,
+                enabled: !_busy,
+                maxLength: 200,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Commit message',
+                  hintText: '例如 feat: update practice screen',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('workspace-git-author-name'),
+                controller: _authorNameController,
+                enabled: !_busy,
+                decoration: const InputDecoration(
+                  labelText: 'Author name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('workspace-git-author-email'),
+                controller: _authorEmailController,
+                enabled: !_busy,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(
+                  labelText: 'Author email',
+                  border: OutlineInputBorder(),
+                ),
+              ),
               if (_errorText != null) ...[
                 const SizedBox(height: 14),
                 Text(
@@ -367,7 +529,7 @@ class _WorkspaceGitConnectionDialogState
               : const Icon(Icons.network_check_outlined),
           label: Text(_checking ? '检查中…' : '检查连接'),
         ),
-        FilledButton.icon(
+        OutlinedButton.icon(
           key: const ValueKey('workspace-git-pull'),
           onPressed: _busy ? null : _pull,
           icon: _pulling
@@ -378,6 +540,20 @@ class _WorkspaceGitConnectionDialogState
                 )
               : const Icon(Icons.download_outlined),
           label: Text(_pulling ? 'Pull 中…' : 'Pull'),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('workspace-git-push'),
+          onPressed: _busy || !widget.hasLocalChanges || trustedHead == null
+              ? null
+              : _push,
+          icon: _pushing
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.upload_outlined),
+          label: Text(_pushing ? 'Push 中…' : 'Commit + Push'),
         ),
       ],
     );

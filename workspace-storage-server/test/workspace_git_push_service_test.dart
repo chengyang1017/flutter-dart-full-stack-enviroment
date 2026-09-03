@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -56,12 +57,17 @@ void main() {
       await _write(root, 'lib/main.dart', 'void main() => print("old");\n');
       await _write(root, 'lib/deleted.dart', 'class Deleted {}\n');
       await _write(root, 'android/keep.txt', 'platform file\n');
+      await _writeBytes(root, 'assets/logo.png', <int>[1, 2, 3]);
     };
     pushExecutor.inspect = (root) async {
       expect(await _read(root, 'lib/main.dart'), 'void main() => print("new");\n');
       expect(await _read(root, 'lib/new_file.dart'), 'class NewFile {}\n');
       expect(await _exists(root, 'lib/deleted.dart'), isFalse);
       expect(await _read(root, 'android/keep.txt'), 'platform file\n');
+      expect(
+        await _readBytes(root, 'assets/logo.png'),
+        <int>[137, 80, 78, 71, 0, 1, 2, 3],
+      );
     };
 
     final result = await pushService.push(
@@ -218,9 +224,25 @@ Future<void> _write(Directory root, String relativePath, String content) async {
   await file.writeAsString(content);
 }
 
+Future<void> _writeBytes(
+  Directory root,
+  String relativePath,
+  List<int> bytes,
+) async {
+  final path = relativePath.replaceAll('/', Platform.pathSeparator);
+  final file = File('${root.path}${Platform.pathSeparator}$path');
+  await file.parent.create(recursive: true);
+  await file.writeAsBytes(bytes);
+}
+
 Future<String> _read(Directory root, String relativePath) {
   final path = relativePath.replaceAll('/', Platform.pathSeparator);
   return File('${root.path}${Platform.pathSeparator}$path').readAsString();
+}
+
+Future<List<int>> _readBytes(Directory root, String relativePath) async {
+  final path = relativePath.replaceAll('/', Platform.pathSeparator);
+  return File('${root.path}${Platform.pathSeparator}$path').readAsBytes();
 }
 
 Future<bool> _exists(Directory root, String relativePath) {
@@ -245,7 +267,7 @@ Map<String, dynamic> _project() => <String, dynamic>{
     };
 
 Map<String, dynamic> _snapshot() => <String, dynamic>{
-      'formatVersion': 2,
+      'formatVersion': 3,
       'entries': <Object>[
         <String, Object?>{
           'id': 'dir-lib',
@@ -258,24 +280,34 @@ Map<String, dynamic> _snapshot() => <String, dynamic>{
           'path': 'lib/main.dart',
           'type': 'file',
           'content': 'void main() => print("new");\n',
+          'encoding': 'utf8',
         },
         <String, Object?>{
           'id': 'file-new',
           'path': 'lib/new_file.dart',
           'type': 'file',
           'content': 'class NewFile {}\n',
+          'encoding': 'utf8',
+        },
+        <String, Object?>{
+          'id': 'file-logo',
+          'path': 'assets/logo.png',
+          'type': 'file',
+          'content': base64Encode(<int>[137, 80, 78, 71, 0, 1, 2, 3]),
+          'encoding': 'base64',
         },
         <String, Object?>{
           'id': 'file-pubspec',
           'path': 'pubspec.yaml',
           'type': 'file',
           'content': 'name: new_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
+          'encoding': 'utf8',
         },
       ],
       'baseEntries': <Object>[],
       'openFiles': <Object>['lib/main.dart'],
       'activePath': 'lib/main.dart',
-      'nextId': 5,
+      'nextId': 6,
       'savedAt': '2026-09-03T00:00:00.000Z',
       'expandedDirectoryIds': <Object>['dir-lib'],
       'editorStates': <String, Object?>{},
