@@ -12,8 +12,8 @@ class FlutterProjectZipImportService {
 
   static const int maxZipBytes = 25 * 1024 * 1024;
   static const int maxImportedFiles = 3000;
-  static const int maxSingleTextFileBytes = 5 * 1024 * 1024;
-  static const int maxImportedTextBytes = 50 * 1024 * 1024;
+  static const int maxSinglePortableFileBytes = 5 * 1024 * 1024;
+  static const int maxImportedPortableBytes = 50 * 1024 * 1024;
 
   static const Set<String> _ignoredTopLevelDirectories = <String>{
     '.git',
@@ -72,10 +72,9 @@ class FlutterProjectZipImportService {
     final pubspec = _decodeText(pubspecPath, filesByPath[pubspecPath]!);
     final projectName = _projectName(pubspec, root);
 
-    final textFiles = <String, String>{};
-    final binaryPaths = <String>[];
+    final portableFiles = <String, _ImportedFile>{};
     var ignoredFileCount = 0;
-    var importedTextBytes = 0;
+    var importedBytes = 0;
 
     for (final entry in filesByPath.entries) {
       final relative = _relativeToRoot(entry.key, root);
@@ -85,60 +84,51 @@ class FlutterProjectZipImportService {
         continue;
       }
 
-      if (textFiles.length >= maxImportedFiles) {
+      if (portableFiles.length >= maxImportedFiles) {
         throw const FormatException(
           'Flutter project contains more than 3000 portable files.',
         );
       }
-      if (entry.value.size > maxSingleTextFileBytes) {
+      if (entry.value.size > maxSinglePortableFileBytes) {
         throw FormatException(
-          'File is larger than the 5 MB text-file limit: $relative',
+          'File is larger than the 5 MB portable-file limit: $relative',
         );
       }
 
-      final content = _tryDecodeText(entry.value);
-      if (content == null) {
-        binaryPaths.add(relative);
-        continue;
-      }
-
-      importedTextBytes += entry.value.size;
-      if (importedTextBytes > maxImportedTextBytes) {
+      importedBytes += entry.value.size;
+      if (importedBytes > maxImportedPortableBytes) {
         throw const FormatException(
-          'Flutter project contains more than 50 MB of portable text files.',
+          'Flutter project contains more than 50 MB of portable files.',
         );
       }
-      textFiles[relative] = content;
+
+      final rawBytes = Uint8List.fromList(entry.value.content);
+      final text = _tryDecodeTextBytes(rawBytes);
+      portableFiles[relative] = text == null
+          ? _ImportedFile.binary(rawBytes)
+          : _ImportedFile.text(text);
     }
 
-    if (binaryPaths.isNotEmpty) {
-      binaryPaths.sort();
-      final shown = binaryPaths.take(8).join(', ');
-      final suffix = binaryPaths.length > 8
-          ? ' (+${binaryPaths.length - 8} more)'
-          : '';
-      throw FormatException(
-        'This project contains binary portable assets that the current '
-        'Workspace protocol cannot preserve yet: $shown$suffix',
-      );
-    }
-
-    if (!textFiles.containsKey('pubspec.yaml') ||
-        !textFiles.containsKey('lib/main.dart')) {
+    final importedPubspec = portableFiles['pubspec.yaml'];
+    final importedMain = portableFiles['lib/main.dart'];
+    if (importedPubspec == null ||
+        importedMain == null ||
+        importedPubspec.encoding != WorkspaceFileEncoding.utf8 ||
+        importedMain.encoding != WorkspaceFileEncoding.utf8) {
       throw const FormatException(
-        'Imported Flutter project must preserve pubspec.yaml and lib/main.dart.',
+        'Imported Flutter project must preserve text pubspec.yaml and lib/main.dart.',
       );
     }
 
     final snapshot = _buildSnapshot(
-      textFiles,
+      portableFiles,
       importedAt: importedAt ?? DateTime.now().toUtc(),
     );
 
     return FlutterProjectImportBundle(
       projectName: projectName,
       snapshot: snapshot,
-      importedFileCount: textFiles.length,
+      importedFileCount: portableFiles.length,
       ignoredFileCount: ignoredFileCount,
     );
   }
@@ -192,7 +182,7 @@ class FlutterProjectZipImportService {
   }
 
   WorkspaceSnapshot _buildSnapshot(
-    Map<String, String> files, {
+    Map<String, _ImportedFile> files, {
     required DateTime importedAt,
   }) {
     final directories = <String>{};
@@ -227,12 +217,14 @@ class FlutterProjectZipImportService {
     }
 
     for (final path in filePaths) {
+      final file = files[path]!;
       entries.add(
         WorkspaceEntry(
           id: 'import-${++idCounter}',
           path: path,
           type: WorkspaceEntryType.file,
-          content: files[path]!,
+          content: file.content,
+          encoding: file.encoding,
         ),
       );
     }
@@ -274,7 +266,10 @@ class FlutterProjectZipImportService {
   }
 
   String? _tryDecodeText(ArchiveFile file) {
-    final bytes = file.content;
+    return _tryDecodeTextBytes(Uint8List.fromList(file.content));
+  }
+
+  String? _tryDecodeTextBytes(Uint8List bytes) {
     if (bytes.any((value) => value == 0)) return null;
     try {
       return utf8.decode(bytes, allowMalformed: false);
@@ -299,4 +294,21 @@ class FlutterProjectZipImportService {
     }
     return segments.join('/');
   }
+}
+
+class _ImportedFile {
+  const _ImportedFile._({required this.content, required this.encoding});
+
+  factory _ImportedFile.text(String content) => _ImportedFile._(
+        content: content,
+        encoding: WorkspaceFileEncoding.utf8,
+      );
+
+  factory _ImportedFile.binary(Uint8List bytes) => _ImportedFile._(
+        content: base64Encode(bytes),
+        encoding: WorkspaceFileEncoding.base64,
+      );
+
+  final String content;
+  final WorkspaceFileEncoding encoding;
 }
