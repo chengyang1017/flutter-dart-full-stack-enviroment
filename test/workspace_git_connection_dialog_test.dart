@@ -221,7 +221,7 @@ void main() {
   testWidgets('dirty Workspace requires explicit overwrite before pull', (
     tester,
   ) async {
-    bool? allowDirtyOverwrite;
+    bool? receivedAllowDirtyOverwrite;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -240,7 +240,7 @@ void main() {
                     username,
                     allowDirtyOverwrite = false,
                   }) async {
-                    allowDirtyOverwrite = allowDirtyOverwrite;
+                    receivedAllowDirtyOverwrite = allowDirtyOverwrite;
                     return _pullResult();
                   },
                   hasLocalChanges: true,
@@ -265,7 +265,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(allowDirtyOverwrite, isTrue);
+    expect(receivedAllowDirtyOverwrite, isTrue);
   });
 }
 
