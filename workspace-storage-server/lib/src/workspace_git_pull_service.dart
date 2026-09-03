@@ -245,6 +245,7 @@ class WorkspaceGitPullService {
     final repositoryUrl = _validateRepositoryUrl(remote['repositoryUrl']);
     final branch = _validateBranch(remote['branch']);
     final provider = _readProvider(remote['provider']);
+    final projectPath = _validateProjectPath(remote['projectPath']);
 
     String? secret;
     if (secretName != null && secretName.trim().isNotEmpty) {
@@ -285,7 +286,10 @@ class WorkspaceGitPullService {
         );
       }
 
-      final imported = await _readFlutterProject(checkout);
+      final imported = await _readFlutterProject(
+        checkout,
+        projectPath: projectPath,
+      );
       return WorkspaceGitPullResult(
         repositoryUrl: repositoryUrl,
         branch: branch,
@@ -303,7 +307,10 @@ class WorkspaceGitPullService {
     }
   }
 
-  Future<_PortableFlutterProject> _readFlutterProject(Directory checkout) async {
+  Future<_PortableFlutterProject> _readFlutterProject(
+    Directory checkout, {
+    String? projectPath,
+  }) async {
     if (!await checkout.exists()) {
       throw const WorkspaceGitRemoteException(
         'Git clone did not produce a checkout directory.',
@@ -337,20 +344,32 @@ class WorkspaceGitPullService {
       pubspecs[root] = pubspec;
     }
 
-    if (candidates.isEmpty) {
-      throw const FormatException(
-        'Git repository must contain one runnable Flutter project with '
-        'pubspec.yaml and lib/main.dart.',
-      );
-    }
-    if (candidates.length > 1) {
-      throw const FormatException(
-        'Git repository contains multiple runnable Flutter projects. '
-        'A future subdirectory binding is required before pulling this repository.',
-      );
+    late final String root;
+    if (projectPath != null) {
+      if (!candidates.contains(projectPath)) {
+        throw FormatException(
+          'Bound Git Flutter project path is not runnable: $projectPath. '
+          'Expected pubspec.yaml and text lib/main.dart at that path.',
+        );
+      }
+      root = projectPath;
+    } else {
+      if (candidates.isEmpty) {
+        throw const FormatException(
+          'Git repository must contain one runnable Flutter project with '
+          'pubspec.yaml and lib/main.dart.',
+        );
+      }
+      if (candidates.length > 1) {
+        candidates.sort();
+        throw FormatException(
+          'Git repository contains multiple runnable Flutter projects: '
+          '${candidates.join(', ')}. Bind a Flutter project path first.',
+        );
+      }
+      root = candidates.single;
     }
 
-    final root = candidates.single;
     final files = <String, String>{};
     var ignoredFileCount = 0;
     var importedBytes = 0;
@@ -502,6 +521,29 @@ class WorkspaceGitPullService {
         source.startsWith('/') ||
         source.endsWith('/')) {
       throw const FormatException('Invalid Git branch name.');
+    }
+    return source;
+  }
+
+  String? _validateProjectPath(Object? value) {
+    if (value == null) return null;
+    if (value is! String) {
+      throw const FormatException('Invalid Git Flutter project path.');
+    }
+    var source = value.trim();
+    if (source.isEmpty) return null;
+    while (source.endsWith('/')) {
+      source = source.substring(0, source.length - 1);
+    }
+    if (source.isEmpty ||
+        source.startsWith('/') ||
+        source.contains('\\') ||
+        source.contains('//')) {
+      throw const FormatException('Invalid Git Flutter project path.');
+    }
+    final parts = source.split('/');
+    if (parts.any((part) => part.isEmpty || part == '.' || part == '..')) {
+      throw const FormatException('Invalid Git Flutter project path.');
     }
     return source;
   }
