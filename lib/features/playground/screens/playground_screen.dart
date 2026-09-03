@@ -11,11 +11,11 @@ import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
 import '../../runner/services/runner_preview_tab.dart';
 import '../../runner/widgets/runner_target_dialog.dart';
-import '../../workspace/models/workspace_git_pull.dart';
 import '../../workspace/services/hive_workspace_persistence.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
 import '../../workspace/services/workspace_git_connection_runtime.dart';
 import '../../workspace/services/workspace_git_pull_coordinator.dart';
+import '../../workspace/services/workspace_git_push_coordinator.dart';
 import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
@@ -337,9 +337,15 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       projects: library,
       git: runtime.coordinator.git,
     );
+    final pushCoordinator = WorkspaceGitPushCoordinator(
+      workspace: controller.workspace,
+      projects: library,
+      remote: runtime.coordinator.remote,
+      git: runtime.coordinator.git,
+    );
 
     var editRemote = false;
-    final pulled = await showDialog<WorkspaceGitPullResult>(
+    final result = await showDialog<WorkspaceGitDialogResult>(
       context: context,
       builder: (dialogContext) => WorkspaceGitConnectionDialog(
         project: project,
@@ -356,8 +362,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
           username: username,
         ),
         pullRemote: ({secretName, username, allowDirtyOverwrite = false}) async {
-          // Ensure the remote document exists and has the active Git binding.
-          // Existing cloud source is preserved by the connection coordinator.
           await runtime.coordinator.listGitSecrets(
             project: library.activeProject,
             snapshot: controller.workspace.createSnapshot(),
@@ -368,6 +372,21 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
             allowDirtyOverwrite: allowDirtyOverwrite,
           );
         },
+        pushRemote: ({
+          required commitMessage,
+          required authorName,
+          required authorEmail,
+          secretName,
+          username,
+        }) {
+          return pushCoordinator.pushCurrent(
+            commitMessage: commitMessage,
+            authorName: authorName,
+            authorEmail: authorEmail,
+            secretName: secretName,
+            username: username,
+          );
+        },
         hasLocalChanges: controller.workspace.isDirty,
         onEditRemote: () {
           editRemote = true;
@@ -376,6 +395,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       ),
     );
 
+    final pulled = result?.pullResult;
     if (pulled != null && mounted) {
       setState(() {});
       final ignored = pulled.ignoredFileCount == 0
@@ -388,6 +408,26 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
         SnackBar(
           content: Text(
             'Git Pull 完成：${pulled.importedFileCount} 个文件$ignored · HEAD $shortHead',
+          ),
+        ),
+      );
+    }
+
+    final pushed = result?.pushResult;
+    if (pushed != null && mounted) {
+      setState(() {});
+      final previous = pushed.previousRemoteHead.length <= 12
+          ? pushed.previousRemoteHead
+          : pushed.previousRemoteHead.substring(0, 12);
+      final next = pushed.newRemoteHead.length <= 12
+          ? pushed.newRemoteHead
+          : pushed.newRemoteHead.substring(0, 12);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            pushed.committed
+                ? 'Git Push 完成：$previous → $next'
+                : 'Git Push 完成：没有新的 commit · HEAD $next',
           ),
         ),
       );
