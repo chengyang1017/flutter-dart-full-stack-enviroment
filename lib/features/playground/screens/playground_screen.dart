@@ -11,9 +11,11 @@ import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
 import '../../runner/services/runner_preview_tab.dart';
 import '../../runner/widgets/runner_target_dialog.dart';
+import '../../workspace/models/workspace_git_pull.dart';
 import '../../workspace/services/hive_workspace_persistence.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
 import '../../workspace/services/workspace_git_connection_runtime.dart';
+import '../../workspace/services/workspace_git_pull_coordinator.dart';
 import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
@@ -253,7 +255,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文本文件$ignored。',
+            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文件$ignored。',
           ),
         ),
       );
@@ -330,8 +332,14 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       return;
     }
 
+    final pullCoordinator = WorkspaceGitPullCoordinator(
+      workspace: controller.workspace,
+      projects: library,
+      git: runtime.coordinator.git,
+    );
+
     var editRemote = false;
-    await showDialog<void>(
+    final pulled = await showDialog<WorkspaceGitPullResult>(
       context: context,
       builder: (dialogContext) => WorkspaceGitConnectionDialog(
         project: project,
@@ -347,12 +355,43 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
           secretValue: secretValue,
           username: username,
         ),
+        pullRemote: ({secretName, username, allowDirtyOverwrite = false}) async {
+          // Ensure the remote document exists and has the active Git binding.
+          // Existing cloud source is preserved by the connection coordinator.
+          await runtime.coordinator.listGitSecrets(
+            project: library.activeProject,
+            snapshot: controller.workspace.createSnapshot(),
+          );
+          return pullCoordinator.pullCurrent(
+            secretName: secretName,
+            username: username,
+            allowDirtyOverwrite: allowDirtyOverwrite,
+          );
+        },
+        hasLocalChanges: controller.workspace.isDirty,
         onEditRemote: () {
           editRemote = true;
           Navigator.pop(dialogContext);
         },
       ),
     );
+
+    if (pulled != null && mounted) {
+      setState(() {});
+      final ignored = pulled.ignoredFileCount == 0
+          ? ''
+          : '，忽略 ${pulled.ignoredFileCount} 个生成/平台文件';
+      final shortHead = pulled.remoteHead.length <= 12
+          ? pulled.remoteHead
+          : pulled.remoteHead.substring(0, 12);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Git Pull 完成：${pulled.importedFileCount} 个文件$ignored · HEAD $shortHead',
+          ),
+        ),
+      );
+    }
 
     if (editRemote && mounted) {
       await _configureGitRemote();
