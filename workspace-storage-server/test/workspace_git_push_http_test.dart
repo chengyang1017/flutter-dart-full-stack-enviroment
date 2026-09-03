@@ -61,7 +61,9 @@ void main() {
   });
 
   test('Git push route uses revision/head guards and never echoes secret', () async {
-    final response = await _push(
+    final response = await _sendPush(
+      client: client,
+      baseUri: baseUri,
       expectedWorkspaceRevision: 'r1',
       expectedRemoteHead: 'aaaaaaaaaaaaaaaa',
     );
@@ -80,7 +82,9 @@ void main() {
   test('Git push route reports remote HEAD conflict as 409', () async {
     cloneExecutor.remoteHead = 'cccccccccccccccc';
 
-    final response = await _push(
+    final response = await _sendPush(
+      client: client,
+      baseUri: baseUri,
       expectedWorkspaceRevision: 'r1',
       expectedRemoteHead: 'aaaaaaaaaaaaaaaa',
     );
@@ -94,29 +98,31 @@ void main() {
     expect(body['actualRemoteHead'], 'cccccccccccccccc');
     expect(pushExecutor.calls, 0);
   });
+}
 
-  Future<HttpClientResponse> _push({
-    required String expectedWorkspaceRevision,
-    required String expectedRemoteHead,
-  }) async {
-    final request = await client.postUrl(
-      baseUri.resolve('workspaces/workspace-a/git/push'),
-    );
-    request.headers.set(
-      HttpHeaders.authorizationHeader,
-      'Bearer alice-token',
-    );
-    request.headers.contentType = ContentType.json;
-    request.write(jsonEncode(<String, dynamic>{
-      'expectedWorkspaceRevision': expectedWorkspaceRevision,
-      'expectedRemoteHead': expectedRemoteHead,
-      'commitMessage': 'feat: push from Workspace',
-      'authorName': 'Alice Developer',
-      'authorEmail': 'alice@example.com',
-      'secretName': 'GITHUB_TOKEN',
-    }));
-    return request.close();
-  }
+Future<HttpClientResponse> _sendPush({
+  required HttpClient client,
+  required Uri baseUri,
+  required String expectedWorkspaceRevision,
+  required String expectedRemoteHead,
+}) async {
+  final request = await client.postUrl(
+    baseUri.resolve('workspaces/workspace-a/git/push'),
+  );
+  request.headers.set(
+    HttpHeaders.authorizationHeader,
+    'Bearer alice-token',
+  );
+  request.headers.contentType = ContentType.json;
+  request.write(jsonEncode(<String, dynamic>{
+    'expectedWorkspaceRevision': expectedWorkspaceRevision,
+    'expectedRemoteHead': expectedRemoteHead,
+    'commitMessage': 'feat: push from Workspace',
+    'authorName': 'Alice Developer',
+    'authorEmail': 'alice@example.com',
+    'secretName': 'GITHUB_TOKEN',
+  }));
+  return request.close();
 }
 
 class _FakeCloneExecutor implements WorkspaceGitCloneExecutor {
