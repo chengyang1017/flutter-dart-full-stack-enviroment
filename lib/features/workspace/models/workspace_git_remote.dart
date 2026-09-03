@@ -11,6 +11,7 @@ class WorkspaceGitRemote {
     String remoteName = 'origin',
     String branch = 'main',
     WorkspaceGitProvider? provider,
+    String? lastSyncedHead,
   }) {
     final normalizedUrl = _normalizeRepositoryUrl(repositoryUrl);
     return WorkspaceGitRemote._(
@@ -18,6 +19,7 @@ class WorkspaceGitRemote {
       remoteName: _validateRemoteName(remoteName),
       branch: _validateBranch(branch),
       provider: provider ?? _detectProvider(normalizedUrl),
+      lastSyncedHead: _validateSyncedHead(lastSyncedHead),
     );
   }
 
@@ -26,6 +28,7 @@ class WorkspaceGitRemote {
     required this.remoteName,
     required this.branch,
     required this.provider,
+    required this.lastSyncedHead,
   });
 
   /// Repository location only. Credentials, access tokens and SSH private keys
@@ -35,20 +38,45 @@ class WorkspaceGitRemote {
   final String branch;
   final WorkspaceGitProvider provider;
 
+  /// Last remote commit that was safely imported into this Workspace.
+  /// This is non-secret concurrency metadata used to guard future pushes.
+  final String? lastSyncedHead;
+
+  WorkspaceGitRemote copyWith({
+    String? repositoryUrl,
+    String? remoteName,
+    String? branch,
+    WorkspaceGitProvider? provider,
+    String? lastSyncedHead,
+    bool clearLastSyncedHead = false,
+  }) {
+    return WorkspaceGitRemote(
+      repositoryUrl: repositoryUrl ?? this.repositoryUrl,
+      remoteName: remoteName ?? this.remoteName,
+      branch: branch ?? this.branch,
+      provider: provider ?? this.provider,
+      lastSyncedHead:
+          clearLastSyncedHead ? null : lastSyncedHead ?? this.lastSyncedHead,
+    );
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'repositoryUrl': repositoryUrl,
         'remoteName': remoteName,
         'branch': branch,
         'provider': provider.name,
+        if (lastSyncedHead != null) 'lastSyncedHead': lastSyncedHead,
       };
 
   factory WorkspaceGitRemote.fromJson(Map<dynamic, dynamic> json) {
     final repositoryUrl = json['repositoryUrl'];
     final remoteName = json['remoteName'];
     final branch = json['branch'];
+    final lastSyncedHead = json['lastSyncedHead'];
     if (repositoryUrl is! String ||
         remoteName is! String ||
-        branch is! String) {
+        branch is! String ||
+        (lastSyncedHead != null && lastSyncedHead is! String)) {
       throw const FormatException('Invalid Workspace Git remote metadata.');
     }
 
@@ -63,6 +91,7 @@ class WorkspaceGitRemote {
       remoteName: remoteName,
       branch: branch,
       provider: provider,
+      lastSyncedHead: lastSyncedHead as String?,
     );
   }
 
@@ -144,6 +173,15 @@ class WorkspaceGitRemote {
       throw const FormatException('Invalid Git branch name.');
     }
     return source;
+  }
+
+  static String? _validateSyncedHead(String? value) {
+    if (value == null) return null;
+    final source = value.trim();
+    if (!RegExp(r'^[A-Fa-f0-9]{7,128}$').hasMatch(source)) {
+      throw const FormatException('Invalid Git synced commit id.');
+    }
+    return source.toLowerCase();
   }
 
   static WorkspaceGitProvider _detectProvider(String repositoryUrl) {
