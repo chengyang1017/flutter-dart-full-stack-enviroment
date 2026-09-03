@@ -271,6 +271,8 @@ class WorkspaceGitPushService {
     required this.pushExecutor,
   });
 
+  static const String _binaryEnvelope = '\u0000flutterpractice-base64:';
+
   static const Set<String> _ignoredDirectoryNames = <String>{
     '.git',
     '.dart_tool',
@@ -449,7 +451,9 @@ class WorkspaceGitPushService {
       if (item['type'] != 'file') continue;
       final path = item['path'];
       final content = item['content'];
-      if (path is! String || content is! String) {
+      final encoding = item['encoding'];
+      if (path is! String || content is! String ||
+          (encoding != null && encoding is! String)) {
         throw const FormatException('Workspace snapshot file is invalid.');
       }
       _validatePortablePath(path);
@@ -461,11 +465,31 @@ class WorkspaceGitPushService {
       if (files.containsKey(path)) {
         throw FormatException('Workspace snapshot contains duplicate path: $path');
       }
-      files[path] = content;
+
+      switch (encoding) {
+        case null:
+        case 'utf8':
+          files[path] = content;
+          break;
+        case 'base64':
+          try {
+            base64.decode(content);
+          } on FormatException {
+            throw FormatException('Workspace binary file has invalid base64: $path');
+          }
+          files[path] = '$_binaryEnvelope$content';
+          break;
+        default:
+          throw FormatException('Unsupported Workspace file encoding: $encoding');
+      }
     }
-    if (!files.containsKey('pubspec.yaml') || !files.containsKey('lib/main.dart')) {
+
+    final pubspec = files['pubspec.yaml'];
+    final main = files['lib/main.dart'];
+    if (pubspec == null || main == null ||
+        _isBinaryPayload(pubspec) || _isBinaryPayload(main)) {
       throw const FormatException(
-        'Workspace Git push requires pubspec.yaml and lib/main.dart.',
+        'Workspace Git push requires text pubspec.yaml and lib/main.dart.',
       );
     }
     return files;
@@ -536,12 +560,6 @@ class WorkspaceGitPushService {
         );
       }
       if (entity is! File) continue;
-      if (await _tryReadText(entity) == null) {
-        throw FormatException(
-          'Git repository contains a binary portable asset that Workspace '
-          'cannot safely preserve: $relative',
-        );
-      }
       existingPortableFiles[relative] = entity;
     }
 
@@ -556,7 +574,28 @@ class WorkspaceGitPushService {
         '${root.path}${Platform.pathSeparator}${_platformPath(entry.key)}',
       );
       await file.parent.create(recursive: true);
-      await file.writeAsString(entry.value, flush: true);
+      if (_isBinaryPayload(entry.value)) {
+        await file.writeAsBytes(
+          _decodeBinaryPayload(entry.value),
+          flush: true,
+        );
+      } else {
+        await file.writeAsString(entry.value, flush: true);
+      }
+    }
+  }
+
+  bool _isBinaryPayload(String value) => value.startsWith(_binaryEnvelope);
+
+  List<int> _decodeBinaryPayload(String value) {
+    if (!_isBinaryPayload(value)) {
+      throw const FormatException('Workspace binary envelope is missing.');
+    }
+    final encoded = value.substring(_binaryEnvelope.length);
+    try {
+      return base64.decode(encoded);
+    } on FormatException {
+      throw const FormatException('Workspace binary envelope is invalid.');
     }
   }
 
