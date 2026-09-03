@@ -71,10 +71,18 @@ void main() {
     expect(checked.result.remoteHead, 'aaaaaaaaaaaaaaaa');
   });
 
-  test('existing Workspace is updated before checking', () async {
+  test('existing Workspace updates Git metadata without overwriting cloud source', () async {
+    final cloudSeed = PlaygroundController();
+    cloudSeed.workspace.updateFileContent(
+      'lib/main.dart',
+      'void main() => print("cloud source");\n',
+    );
+    final cloudSnapshot = cloudSeed.workspace.createSnapshot();
+    cloudSeed.dispose();
+
     remote.document = WorkspaceRemoteDocument(
       project: project,
-      snapshot: snapshot,
+      snapshot: cloudSnapshot,
       revision: 'r7',
     );
 
@@ -86,6 +94,12 @@ void main() {
     expect(remote.created, 0);
     expect(remote.saved, 1);
     expect(remote.lastExpectedRevision, 'r7');
+    expect(
+      remote.lastSavedSnapshot?.entries
+          .singleWhere((entry) => entry.path == 'lib/main.dart')
+          .content,
+      contains('cloud source'),
+    );
     expect(git.lastSecretName, isNull);
   });
 
@@ -145,6 +159,7 @@ class _FakeRemote implements WorkspaceRemotePersistence {
   final WorkspaceIdentity identity = const WorkspaceIdentity(userId: 'user-1');
 
   WorkspaceRemoteDocument? document;
+  WorkspaceSnapshot? lastSavedSnapshot;
   int created = 0;
   int saved = 0;
   String? lastExpectedRevision;
@@ -175,6 +190,7 @@ class _FakeRemote implements WorkspaceRemotePersistence {
   }) async {
     saved += 1;
     lastExpectedRevision = expectedRevision;
+    lastSavedSnapshot = snapshot;
     document = WorkspaceRemoteDocument(
       project: project,
       snapshot: snapshot,
