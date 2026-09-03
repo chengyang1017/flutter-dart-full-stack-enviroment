@@ -19,6 +19,7 @@ class RunnerServer {
     'messaging',
     'functions',
   };
+  static const _binaryFilePrefix = '\u0000workspace-base64:';
 
   final SessionManager manager;
   final RunnerAuthenticator authenticator;
@@ -63,6 +64,7 @@ class RunnerServer {
         final files = _readFiles(body['files']);
         final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
         final session = await manager.createSession(files);
+        await _restoreBinaryFiles(session, files);
         _sessionOwners[session.id] = userId;
         session.setFirebaseCapabilities(capabilities ?? const <String>{});
         await _sendJson(
@@ -115,6 +117,7 @@ class RunnerServer {
         final files = _readFiles(body['files']);
         final capabilities = _readFirebaseCapabilities(body['firebaseCapabilities']);
         await manager.syncWorkspace(session, files);
+        await _restoreBinaryFiles(session, files);
         if (capabilities != null) {
           session.setFirebaseCapabilities(capabilities);
         }
@@ -176,6 +179,45 @@ class RunnerServer {
       _sessionOwners.remove(sessionId);
       rethrow;
     }
+  }
+
+  Future<void> _restoreBinaryFiles(
+    RunnerSession session,
+    Map<String, String> files,
+  ) async {
+    var restored = 0;
+    for (final entry in files.entries) {
+      if (!entry.value.startsWith(_binaryFilePrefix)) continue;
+
+      final encoded = entry.value.substring(_binaryFilePrefix.length);
+      final List<int> bytes;
+      try {
+        bytes = base64Decode(encoded);
+      } on FormatException {
+        throw FormatException('Invalid binary Workspace payload: ${entry.key}');
+      }
+
+      final file = File(
+        <String>[
+          session.directory.path,
+          ...entry.key.split('/'),
+        ].join(Platform.pathSeparator),
+      );
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      restored += 1;
+    }
+
+    if (restored == 0) return;
+
+    // SessionManager first performs its normal text-compatible sync. Restore
+    // binary bytes on the host Workspace and mirror the corrected files into
+    // Docker (LocalExecutionBackend treats this as a no-op).
+    await manager.executionBackend.syncWorkspace(
+      session,
+      removedPaths: const <String>{},
+    );
+    session.addLog('[runner] Restored $restored binary Workspace assets.');
   }
 
   Future<void> _sendAccepted(HttpResponse response, RunnerSession session) {
