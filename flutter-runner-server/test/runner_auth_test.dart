@@ -81,6 +81,34 @@ void main() {
     expect(bobRead.statusCode, HttpStatus.notFound);
   });
 
+  test('binary Workspace envelope is restored to exact file bytes', () async {
+    final logoBytes = <int>[0, 137, 80, 78, 71, 13, 10, 26, 10, 255, 1];
+    final created = await _request(
+      client,
+      baseUri,
+      'POST',
+      'sessions',
+      token: 'alice-token',
+      body: jsonEncode(<String, Object?>{
+        'files': <String, String>{
+          'lib/main.dart': 'void main() {}\n',
+          'assets/logo.png':
+              '\u0000workspace-base64:${base64Encode(logoBytes)}',
+        },
+      }),
+    );
+
+    expect(created.statusCode, HttpStatus.created);
+    final body = jsonDecode(created.body) as Map<String, dynamic>;
+    final session = body['session'] as Map<String, dynamic>;
+    final sessionId = session['id'] as String;
+    final asset = File(
+      '${temp.path}${Platform.pathSeparator}$sessionId'
+      '${Platform.pathSeparator}assets${Platform.pathSeparator}logo.png',
+    );
+    expect(await asset.readAsBytes(), orderedEquals(logoBytes));
+  });
+
   test('auth token mapping validates configuration', () {
     final auth = StaticBearerRunnerAuthenticator.fromJson(
       '{"runner-token":"user-1"}',

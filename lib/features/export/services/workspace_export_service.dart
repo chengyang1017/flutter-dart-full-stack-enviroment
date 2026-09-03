@@ -39,7 +39,8 @@ class WorkspaceExportService {
     for (final path in payloadFiles) {
       final entry = workspace.entryAt(path);
       if (entry == null || !entry.isFile) continue;
-      _addTextFile(archive, path, entry.content);
+      final bytes = entry.bytes;
+      archive.addFile(ArchiveFile(path, bytes.length, bytes));
     }
 
     final encoded = ZipEncoder().encodeBytes(archive);
