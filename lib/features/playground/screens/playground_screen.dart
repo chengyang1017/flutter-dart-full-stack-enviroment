@@ -13,9 +13,11 @@ import '../../runner/services/runner_preview_tab.dart';
 import '../../runner/widgets/runner_target_dialog.dart';
 import '../../workspace/services/hive_workspace_persistence.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
+import '../../workspace/services/workspace_git_connection_runtime.dart';
 import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
+import '../../workspace/widgets/workspace_git_connection_dialog.dart';
 import '../../workspace/widgets/workspace_git_remote_dialog.dart';
 import '../../workspace/widgets/workspace_project_bar.dart';
 import '../controllers/playground_controller.dart';
@@ -39,12 +41,14 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   WorkspacePersistence? _workspacePersistence;
   WorkspaceProjectLibrary? _projectLibrary;
   KeyedWorkspaceSnapshotStore? _activeProjectStore;
+  WorkspaceGitConnectionRuntime? _gitConnectionRuntime;
   RunnerPreviewTabHandle? _pendingWebPreviewTab;
 
   @override
   void initState() {
     super.initState();
     _initializeProjectLibrary();
+    _gitConnectionRuntime = WorkspaceGitConnectionRuntime.tryFromEnvironment();
     _createControllers();
   }
 
@@ -94,6 +98,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   @override
   void dispose() {
     _disposeControllers();
+    _gitConnectionRuntime?.close();
     super.dispose();
   }
 
@@ -302,6 +307,58 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     }
   }
 
+  Future<void> _openGitTools() async {
+    final library = _projectLibrary;
+    if (library == null) return;
+    final project = library.activeProject;
+
+    if (project.gitRemote == null) {
+      await _configureGitRemote();
+      return;
+    }
+
+    final runtime = _gitConnectionRuntime;
+    if (runtime == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Git 远端服务未连接。请配置 WORKSPACE_STORAGE_API_URL 和 WORKSPACE_ACCESS_TOKEN。',
+          ),
+        ),
+      );
+      return;
+    }
+
+    var editRemote = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => WorkspaceGitConnectionDialog(
+        project: project,
+        loadSecrets: () => runtime.coordinator.listGitSecrets(
+          project: project,
+          snapshot: controller.workspace.createSnapshot(),
+        ),
+        checkConnection: ({secretName, secretValue, username}) =>
+            runtime.coordinator.check(
+          project: project,
+          snapshot: controller.workspace.createSnapshot(),
+          secretName: secretName,
+          secretValue: secretValue,
+          username: username,
+        ),
+        onEditRemote: () {
+          editRemote = true;
+          Navigator.pop(dialogContext);
+        },
+      ),
+    );
+
+    if (editRemote && mounted) {
+      await _configureGitRemote();
+    }
+  }
+
   Future<void> _configureGitRemote() async {
     final library = _projectLibrary;
     if (library == null) return;
@@ -468,7 +525,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
               ? () => unawaited(_importExistingFlutterProject())
               : null,
           onKeep: () => unawaited(_keepProject()),
-          onGitRemote: () => unawaited(_configureGitRemote()),
+          onGitRemote: () => unawaited(_openGitTools()),
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
