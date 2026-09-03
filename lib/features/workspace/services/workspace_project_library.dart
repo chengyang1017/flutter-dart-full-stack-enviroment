@@ -154,8 +154,18 @@ class WorkspaceProjectLibrary {
 
   Future<void> bindGitRemote(String id, WorkspaceGitRemote remote) async {
     final index = _projectIndex(id);
+    final existing = _projects[index].gitRemote;
+    final targetChanged = existing != null &&
+        (existing.repositoryUrl != remote.repositoryUrl ||
+            existing.remoteName != remote.remoteName ||
+            existing.branch != remote.branch ||
+            existing.projectPath != remote.projectPath);
+    final binding = targetChanged && remote.lastSyncedHead != null
+        ? remote.copyWith(clearLastSyncedHead: true)
+        : remote;
+
     _projects[index] = _projects[index].copyWith(
-      gitRemote: remote,
+      gitRemote: binding,
       updatedAt: DateTime.now().toUtc(),
     );
     await catalogStore.saveProjects(projects);
