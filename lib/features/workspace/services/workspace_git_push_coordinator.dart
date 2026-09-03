@@ -1,5 +1,7 @@
 import '../controllers/workspace_controller.dart';
 import '../models/workspace_git_push.dart';
+import '../models/workspace_project.dart';
+import '../models/workspace_remote_models.dart';
 import '../models/workspace_snapshot.dart';
 import 'workspace_git_remote_service.dart';
 import 'workspace_project_library.dart';
@@ -11,17 +13,19 @@ class WorkspaceGitPushCoordinator {
     required this.projects,
     required this.remote,
     required this.git,
-    required String initialCloudRevision,
-  }) : _cloudRevision = _validateRevision(initialCloudRevision);
+    String? initialCloudRevision,
+  }) : _cloudRevision = initialCloudRevision == null
+            ? null
+            : _validateRevision(initialCloudRevision);
 
   final WorkspaceController workspace;
   final WorkspaceProjectLibrary projects;
   final WorkspaceRemotePersistence remote;
   final WorkspaceGitRemoteService git;
 
-  String _cloudRevision;
+  String? _cloudRevision;
 
-  String get cloudRevision => _cloudRevision;
+  String? get cloudRevision => _cloudRevision;
 
   Future<WorkspaceGitPushResult> pushCurrent({
     required String commitMessage,
@@ -44,10 +48,9 @@ class WorkspaceGitPushCoordinator {
     }
 
     final localSnapshot = workspace.createSnapshot();
-    final staged = await remote.saveWorkspace(
-      project: project.copyWith(updatedAt: DateTime.now().toUtc()),
+    final staged = await _stageWorkspace(
+      project: project,
       snapshot: localSnapshot,
-      expectedRevision: _cloudRevision,
     );
     _cloudRevision = staged.revision;
 
@@ -74,6 +77,35 @@ class WorkspaceGitPushCoordinator {
     await projects.markGitSyncedHead(project.id, pushed.newRemoteHead);
     workspace.restoreSnapshot(baseline);
     return pushed;
+  }
+
+  Future<WorkspaceRemoteDocument> _stageWorkspace({
+    required WorkspaceProject project,
+    required WorkspaceSnapshot snapshot,
+  }) async {
+    final updatedProject = project.copyWith(updatedAt: DateTime.now().toUtc());
+    final knownRevision = _cloudRevision;
+    if (knownRevision != null) {
+      return remote.saveWorkspace(
+        project: updatedProject,
+        snapshot: snapshot,
+        expectedRevision: knownRevision,
+      );
+    }
+
+    final existing = await remote.loadWorkspace(project.id);
+    if (existing == null) {
+      return remote.createWorkspace(
+        project: updatedProject,
+        snapshot: snapshot,
+      );
+    }
+
+    return remote.saveWorkspace(
+      project: updatedProject,
+      snapshot: snapshot,
+      expectedRevision: existing.revision,
+    );
   }
 
   WorkspaceSnapshot _asCleanBaseline(WorkspaceSnapshot snapshot) {
