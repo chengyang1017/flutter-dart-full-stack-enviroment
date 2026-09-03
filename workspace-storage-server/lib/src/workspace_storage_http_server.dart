@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'workspace_authenticator.dart';
+import 'workspace_secret_store.dart';
 import 'workspace_store.dart';
 
 class WorkspaceStorageHttpServer {
   WorkspaceStorageHttpServer({
     required this.store,
+    required this.secretStore,
     required this.authenticator,
     this.allowedOrigin = '*',
   });
 
   final FileWorkspaceStore store;
+  final FileWorkspaceSecretStore secretStore;
   final WorkspaceAuthenticator authenticator;
   final String allowedOrigin;
 
@@ -54,11 +57,12 @@ class WorkspaceStorageHttpServer {
       }
 
       if (segments.length == 1 && request.method == 'GET') {
-        await _sendJson(
-          request.response,
-          HttpStatus.ok,
-          await store.loadCatalog(userId),
+        final catalog = await store.loadCatalog(userId);
+        await secretStore.retainWorkspaces(
+          userId: userId,
+          workspaceIds: _workspaceIdsFromCatalog(catalog),
         );
+        await _sendJson(request.response, HttpStatus.ok, catalog);
         return;
       }
 
@@ -72,6 +76,77 @@ class WorkspaceStorageHttpServer {
           snapshot: snapshot,
         );
         await _sendJson(request.response, HttpStatus.created, document);
+        return;
+      }
+
+      if (segments.length >= 3 && segments[2] == 'secrets') {
+        final workspaceId = segments[1];
+        if (workspaceId.isEmpty) {
+          throw const FormatException('Workspace id is required.');
+        }
+        final workspace = await store.loadWorkspace(userId, workspaceId);
+        if (workspace == null) {
+          await _sendError(
+            request.response,
+            HttpStatus.notFound,
+            'Workspace not found.',
+          );
+          return;
+        }
+
+        if (segments.length == 3 && request.method == 'GET') {
+          final secrets = await secretStore.listSecrets(
+            userId: userId,
+            workspaceId: workspaceId,
+          );
+          await _sendJson(
+            request.response,
+            HttpStatus.ok,
+            <String, Object?>{'secrets': secrets},
+          );
+          return;
+        }
+
+        if (segments.length == 4 && request.method == 'PUT') {
+          final body = await _readJsonObject(request);
+          final value = body['value'];
+          if (value is! String) {
+            throw const FormatException('Secret value must be a string.');
+          }
+          final secret = await secretStore.putSecret(
+            userId: userId,
+            workspaceId: workspaceId,
+            name: segments[3],
+            value: value,
+            contexts: _readSecretContexts(body['contexts']),
+          );
+          await _sendJson(request.response, HttpStatus.ok, secret);
+          return;
+        }
+
+        if (segments.length == 4 && request.method == 'DELETE') {
+          final deleted = await secretStore.deleteSecret(
+            userId: userId,
+            workspaceId: workspaceId,
+            name: segments[3],
+          );
+          if (!deleted) {
+            await _sendError(
+              request.response,
+              HttpStatus.notFound,
+              'Workspace secret not found.',
+            );
+            return;
+          }
+          await _sendEmpty(request.response, HttpStatus.noContent);
+          return;
+        }
+
+        await _sendError(
+          request.response,
+          HttpStatus.notFound,
+          'Route not found.',
+        );
         return;
       }
 
@@ -122,6 +197,10 @@ class WorkspaceStorageHttpServer {
           userId: userId,
           workspaceId: workspaceId,
           expectedRevision: _readRevision(body),
+        );
+        await secretStore.deleteWorkspaceSecrets(
+          userId: userId,
+          workspaceId: workspaceId,
         );
         await _sendJson(request.response, HttpStatus.ok, catalog);
         return;
@@ -199,6 +278,29 @@ class WorkspaceStorageHttpServer {
       throw const FormatException('expectedRevision is required.');
     }
     return value;
+  }
+
+  Set<String> _readSecretContexts(Object? value) {
+    if (value is! Iterable) {
+      throw const FormatException('Secret contexts must be an array.');
+    }
+    return value.map((item) {
+      if (item is! String) {
+        throw const FormatException('Secret context must be a string.');
+      }
+      return item;
+    }).toSet();
+  }
+
+  Set<String> _workspaceIdsFromCatalog(Map<String, dynamic> catalog) {
+    final projects = catalog['projects'];
+    if (projects is! Iterable) return <String>{};
+    return projects.map((project) {
+      if (project is Map && project['id'] is String) {
+        return project['id'] as String;
+      }
+      return '';
+    }).where((id) => id.isNotEmpty).toSet();
   }
 
   Future<void> _sendError(

@@ -14,6 +14,10 @@ void main() {
     temp = await Directory.systemTemp.createTemp('workspace-http-test-');
     final handler = WorkspaceStorageHttpServer(
       store: FileWorkspaceStore(temp),
+      secretStore: FileWorkspaceSecretStore(
+        temp,
+        masterKey: List<int>.generate(32, (index) => index),
+      ),
       authenticator: const StaticBearerWorkspaceAuthenticator(
         <String, String>{
           'alice-token': 'alice',
@@ -113,6 +117,104 @@ void main() {
     expect(conflict.json['code'], 'revision_conflict');
     expect(conflict.json['expectedRevision'], 'r0');
     expect(conflict.json['actualRevision'], 'r1');
+  });
+
+  test('secret API never returns stored secret values', () async {
+    await _request(
+      client,
+      baseUri,
+      'POST',
+      'workspaces',
+      token: 'alice-token',
+      body: <String, dynamic>{
+        'project': _project('workspace-a'),
+        'snapshot': _snapshot(),
+      },
+    );
+
+    final saved = await _request(
+      client,
+      baseUri,
+      'PUT',
+      'workspaces/workspace-a/secrets/GITHUB_TOKEN',
+      token: 'alice-token',
+      body: <String, dynamic>{
+        'value': 'github_pat_never_echo_this',
+        'contexts': <String>['git'],
+      },
+    );
+    expect(saved.statusCode, HttpStatus.ok);
+    expect(saved.json['name'], 'GITHUB_TOKEN');
+    expect(saved.json.containsKey('value'), isFalse);
+
+    final listed = await _request(
+      client,
+      baseUri,
+      'GET',
+      'workspaces/workspace-a/secrets',
+      token: 'alice-token',
+    );
+    expect(listed.statusCode, HttpStatus.ok);
+    final secrets = listed.json['secrets'] as List;
+    expect(secrets, hasLength(1));
+    expect((secrets.single as Map).containsKey('value'), isFalse);
+    expect(jsonEncode(listed.json), isNot(contains('github_pat_never_echo_this')));
+
+    final bobList = await _request(
+      client,
+      baseUri,
+      'GET',
+      'workspaces/workspace-a/secrets',
+      token: 'bob-token',
+    );
+    expect(bobList.statusCode, HttpStatus.notFound);
+  });
+
+  test('deleting Workspace deletes its secret vault', () async {
+    final created = await _request(
+      client,
+      baseUri,
+      'POST',
+      'workspaces',
+      token: 'alice-token',
+      body: <String, dynamic>{
+        'project': _project('workspace-a'),
+        'snapshot': _snapshot(),
+      },
+    );
+    await _request(
+      client,
+      baseUri,
+      'PUT',
+      'workspaces/workspace-a/secrets/API_KEY',
+      token: 'alice-token',
+      body: <String, dynamic>{
+        'value': 'temporary-secret',
+        'contexts': <String>['runner'],
+      },
+    );
+
+    final deleted = await _request(
+      client,
+      baseUri,
+      'DELETE',
+      'workspaces/workspace-a',
+      token: 'alice-token',
+      body: <String, dynamic>{
+        'expectedRevision': created.json['revision'],
+      },
+    );
+    expect(deleted.statusCode, HttpStatus.ok);
+
+    final files = await temp
+        .list(recursive: true)
+        .where((entity) => entity is File)
+        .cast<File>()
+        .toList();
+    expect(
+      files.where((file) => file.path.replaceAll('\\', '/').contains('/secrets/')),
+      isEmpty,
+    );
   });
 }
 

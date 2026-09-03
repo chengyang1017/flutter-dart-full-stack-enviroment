@@ -26,11 +26,37 @@ Future<void> main() async {
     return;
   }
 
+  final secretMasterKey = environment['WORKSPACE_SECRET_MASTER_KEY'];
+  if (secretMasterKey == null || secretMasterKey.trim().isEmpty) {
+    stderr.writeln(
+      'WORKSPACE_SECRET_MASTER_KEY is required and must be a base64url-encoded '
+      '32-byte key.',
+    );
+    exitCode = 64;
+    return;
+  }
+
+  late final List<int> decodedSecretMasterKey;
+  try {
+    decodedSecretMasterKey = FileWorkspaceSecretStore.decodeMasterKey(
+      secretMasterKey,
+    );
+  } on FormatException catch (error) {
+    stderr.writeln(error.message);
+    exitCode = 64;
+    return;
+  }
+
   final authenticator = StaticBearerWorkspaceAuthenticator.fromJson(authTokens);
+  final root = Directory(storageRoot);
   final handler = WorkspaceStorageHttpServer(
     store: FileWorkspaceStore(
-      Directory(storageRoot),
+      root,
       temporaryWorkspaceTtl: Duration(hours: temporaryTtlHours),
+    ),
+    secretStore: FileWorkspaceSecretStore(
+      root,
+      masterKey: decodedSecretMasterKey,
     ),
     authenticator: authenticator,
     allowedOrigin: environment['ALLOWED_ORIGIN'] ?? '*',
@@ -40,8 +66,9 @@ Future<void> main() async {
   stdout.writeln(
     'Workspace storage listening on http://${server.address.address}:${server.port}',
   );
-  stdout.writeln('Storage root: ${Directory(storageRoot).absolute.path}');
+  stdout.writeln('Storage root: ${root.absolute.path}');
   stdout.writeln('Temporary Workspace TTL: $temporaryTtlHours hours');
+  stdout.writeln('Workspace secret vault: AES-GCM-256 enabled');
 
   final subscriptions = <StreamSubscription<ProcessSignal>>[];
   Future<void> shutdown(ProcessSignal signal) async {
