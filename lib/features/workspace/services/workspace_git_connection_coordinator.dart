@@ -102,7 +102,7 @@ class WorkspaceGitConnectionCoordinator {
 
     await remote.saveWorkspace(
       project: project,
-      snapshot: snapshot,
+      snapshot: existing.snapshot,
       expectedRevision: existing.revision,
     );
   }
