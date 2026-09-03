@@ -16,6 +16,7 @@ import '../../workspace/services/keyed_workspace_snapshot_store.dart';
 import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
+import '../../workspace/widgets/workspace_git_remote_dialog.dart';
 import '../../workspace/widgets/workspace_project_bar.dart';
 import '../controllers/playground_controller.dart';
 import '../widgets/compact_playground_layout.dart';
@@ -301,6 +302,57 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     }
   }
 
+  Future<void> _configureGitRemote() async {
+    final library = _projectLibrary;
+    if (library == null) return;
+    final project = library.activeProject;
+
+    final result = await showDialog<WorkspaceGitRemoteDialogResult>(
+      context: context,
+      builder: (_) => WorkspaceGitRemoteDialog(
+        initialRemote: project.gitRemote,
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    try {
+      if (result.unbind) {
+        await library.unbindGitRemote(project.id);
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已解绑 ${project.name} 的 Git 仓库。')),
+        );
+        return;
+      }
+
+      final remote = result.remote;
+      if (remote == null) return;
+      final existing = project.gitRemote;
+      final sameRemote = existing != null &&
+          existing.repositoryUrl == remote.repositoryUrl &&
+          existing.remoteName == remote.remoteName &&
+          existing.branch == remote.branch;
+      final binding = sameRemote
+          ? remote.copyWith(lastSyncedHead: existing.lastSyncedHead)
+          : remote;
+
+      await library.bindGitRemote(project.id, binding);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已绑定 ${binding.repositoryUrl} · ${binding.branch}'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Git 仓库设置失败：$error')),
+      );
+    }
+  }
+
   Future<void> _deleteProject() async {
     final library = _projectLibrary;
     if (library == null || library.projects.length <= 1) return;
@@ -416,6 +468,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
               ? () => unawaited(_importExistingFlutterProject())
               : null,
           onKeep: () => unawaited(_keepProject()),
+          onGitRemote: () => unawaited(_configureGitRemote()),
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
