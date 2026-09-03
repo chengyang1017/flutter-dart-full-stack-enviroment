@@ -67,7 +67,10 @@ void main() {
     final request = await client.postUrl(
       baseUri.resolve('workspaces/workspace-a/git/check'),
     );
-    request.headers.authorization = 'Bearer alice-token';
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer alice-token',
+    );
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(<String, dynamic>{
       'secretName': 'GITHUB_TOKEN',

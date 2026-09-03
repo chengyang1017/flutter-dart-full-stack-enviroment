@@ -131,9 +131,9 @@ class ProcessWorkspaceGitCommandExecutor implements WorkspaceGitCommandExecutor 
     final file = File('${directory.path}${Platform.pathSeparator}askpass.sh');
     await file.writeAsString(
       '#!/bin/sh\n'
-      'case "$1" in\n'
-      '  *Username*) printf "%s\\n" "$WORKSPACE_GIT_USERNAME" ;;\n'
-      '  *) printf "%s\\n" "$WORKSPACE_GIT_SECRET" ;;\n'
+      'case "\$1" in\n'
+      '  *Username*) printf "%s\\n" "\$WORKSPACE_GIT_USERNAME" ;;\n'
+      '  *) printf "%s\\n" "\$WORKSPACE_GIT_SECRET" ;;\n'
       'esac\n',
       flush: true,
     );
@@ -197,9 +197,11 @@ class WorkspaceGitRemoteChecker {
     final result = await executor.lsRemote(
       repositoryUrl: repositoryUrl,
       branch: branch,
-      username: secret == null ? null : (username?.trim().isNotEmpty == true
-          ? username!.trim()
-          : _defaultUsername(provider)),
+      username: secret == null
+          ? null
+          : (username?.trim().isNotEmpty == true
+              ? username!.trim()
+              : _defaultUsername(provider)),
       secret: secret,
     );
     if (result.exitCode != 0) {
@@ -213,7 +215,8 @@ class WorkspaceGitRemoteChecker {
         .split(RegExp(r'[\r\n]+'))
         .map((line) => line.trim())
         .firstWhere((line) => line.isNotEmpty, orElse: () => '');
-    final remoteHead = firstLine.isEmpty ? null : firstLine.split(RegExp(r'\s+')).first;
+    final remoteHead =
+        firstLine.isEmpty ? null : firstLine.split(RegExp(r'\s+')).first;
 
     return WorkspaceGitRemoteCheckResult(
       repositoryUrl: repositoryUrl,
