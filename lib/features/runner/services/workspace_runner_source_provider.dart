@@ -99,5 +99,5 @@ class RemoteBackedWorkspaceRunnerSourceProvider
 Map<String, String> _filesFromSnapshot(WorkspaceSnapshot snapshot) =>
     <String, String>{
       for (final entry in snapshot.entries)
-        if (entry.isFile) entry.path: entry.content,
+        if (entry.isFile) entry.path: entry.runnerContent,
     };
