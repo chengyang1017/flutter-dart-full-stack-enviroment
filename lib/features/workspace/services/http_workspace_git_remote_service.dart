@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/workspace_git_pull.dart';
 import '../models/workspace_git_remote_check.dart';
 import 'workspace_git_remote_service.dart';
 
@@ -22,8 +23,41 @@ class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
     String? secretName,
     String? username,
   }) async {
+    final body = await _postGitAction(
+      workspaceId: workspaceId,
+      action: 'check',
+      secretName: secretName,
+      username: username,
+      fallbackError: 'Git remote check failed.',
+    );
+    return WorkspaceGitRemoteCheckResult.fromJson(body);
+  }
+
+  @override
+  Future<WorkspaceGitPullResult> pullRemote({
+    required String workspaceId,
+    String? secretName,
+    String? username,
+  }) async {
+    final body = await _postGitAction(
+      workspaceId: workspaceId,
+      action: 'pull',
+      secretName: secretName,
+      username: username,
+      fallbackError: 'Git pull failed.',
+    );
+    return WorkspaceGitPullResult.fromJson(body);
+  }
+
+  Future<Map<String, dynamic>> _postGitAction({
+    required String workspaceId,
+    required String action,
+    required String fallbackError,
+    String? secretName,
+    String? username,
+  }) async {
     final response = await _client.post(
-      _uri(<String>['workspaces', workspaceId, 'git', 'check']),
+      _uri(<String>['workspaces', workspaceId, 'git', action]),
       headers: <String, String>{
         'accept': 'application/json',
         'authorization': 'Bearer $accessToken',
@@ -41,12 +75,10 @@ class HttpWorkspaceGitRemoteService implements WorkspaceGitRemoteService {
       final error = body['error'];
       throw WorkspaceGitRemoteRequestException(
         statusCode: response.statusCode,
-        message: error is String && error.isNotEmpty
-            ? error
-            : 'Git remote check failed.',
+        message: error is String && error.isNotEmpty ? error : fallbackError,
       );
     }
-    return WorkspaceGitRemoteCheckResult.fromJson(body);
+    return body;
   }
 
   Uri _uri(List<String> segments) {

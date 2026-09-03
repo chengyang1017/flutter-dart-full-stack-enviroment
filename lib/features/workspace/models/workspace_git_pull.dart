@@ -1,0 +1,140 @@
+import 'workspace_entry.dart';
+import 'workspace_snapshot.dart';
+
+class WorkspaceGitPullResult {
+  WorkspaceGitPullResult({
+    required this.repositoryUrl,
+    required this.branch,
+    required this.provider,
+    required this.projectName,
+    required this.remoteHead,
+    required Map<String, String> files,
+    required this.importedFileCount,
+    required this.ignoredFileCount,
+  }) : files = Map<String, String>.unmodifiable(files);
+
+  final String repositoryUrl;
+  final String branch;
+  final String provider;
+  final String projectName;
+  final String remoteHead;
+  final Map<String, String> files;
+  final int importedFileCount;
+  final int ignoredFileCount;
+
+  factory WorkspaceGitPullResult.fromJson(Map<dynamic, dynamic> json) {
+    final repositoryUrl = json['repositoryUrl'];
+    final branch = json['branch'];
+    final provider = json['provider'];
+    final projectName = json['projectName'];
+    final remoteHead = json['remoteHead'];
+    final importedFileCount = json['importedFileCount'];
+    final ignoredFileCount = json['ignoredFileCount'];
+    final rawFiles = json['files'];
+
+    if (repositoryUrl is! String ||
+        branch is! String ||
+        provider is! String ||
+        projectName is! String ||
+        projectName.isEmpty ||
+        remoteHead is! String ||
+        remoteHead.isEmpty ||
+        importedFileCount is! int ||
+        importedFileCount < 0 ||
+        ignoredFileCount is! int ||
+        ignoredFileCount < 0 ||
+        rawFiles is! Map) {
+      throw const FormatException('Invalid Git pull response.');
+    }
+
+    final files = <String, String>{};
+    for (final entry in rawFiles.entries) {
+      if (entry.key is! String || entry.value is! String) {
+        throw const FormatException('Git pull files must contain UTF-8 text.');
+      }
+      final path = entry.key as String;
+      _validatePortablePath(path);
+      files[path] = entry.value as String;
+    }
+    if (files.length != importedFileCount ||
+        !files.containsKey('pubspec.yaml') ||
+        !files.containsKey('lib/main.dart')) {
+      throw const FormatException('Git pull response contains an invalid Flutter source set.');
+    }
+
+    return WorkspaceGitPullResult(
+      repositoryUrl: repositoryUrl,
+      branch: branch,
+      provider: provider,
+      projectName: projectName,
+      remoteHead: remoteHead,
+      files: files,
+      importedFileCount: importedFileCount,
+      ignoredFileCount: ignoredFileCount,
+    );
+  }
+
+  WorkspaceSnapshot toSnapshot({DateTime? pulledAt}) {
+    final directories = <String>{};
+    for (final path in files.keys) {
+      final parts = path.split('/');
+      for (var index = 1; index < parts.length; index++) {
+        directories.add(parts.take(index).join('/'));
+      }
+    }
+
+    final directoryPaths = directories.toList()
+      ..sort((a, b) {
+        final depth = _depth(a).compareTo(_depth(b));
+        return depth != 0 ? depth : a.compareTo(b);
+      });
+    final filePaths = files.keys.toList()..sort();
+    final entries = <WorkspaceEntry>[];
+    final rootDirectoryIds = <String>[];
+    var idCounter = 0;
+
+    for (final path in directoryPaths) {
+      final id = 'git-pull-${++idCounter}';
+      entries.add(
+        WorkspaceEntry(
+          id: id,
+          path: path,
+          type: WorkspaceEntryType.directory,
+        ),
+      );
+      if (!path.contains('/')) rootDirectoryIds.add(id);
+    }
+    for (final path in filePaths) {
+      entries.add(
+        WorkspaceEntry(
+          id: 'git-pull-${++idCounter}',
+          path: path,
+          type: WorkspaceEntryType.file,
+          content: files[path]!,
+        ),
+      );
+    }
+
+    return WorkspaceSnapshot(
+      entries: entries,
+      baseEntries: List<WorkspaceEntry>.of(entries),
+      openFiles: const <String>['lib/main.dart', 'pubspec.yaml'],
+      activePath: 'lib/main.dart',
+      nextId: idCounter + 1,
+      savedAt: (pulledAt ?? DateTime.now()).toUtc(),
+      expandedDirectoryIds: rootDirectoryIds,
+    );
+  }
+
+  static int _depth(String path) => '/'.allMatches(path).length;
+
+  static void _validatePortablePath(String path) {
+    if (path.isEmpty || path.startsWith('/') || path.contains('\\')) {
+      throw const FormatException('Git pull response contains an unsafe path.');
+    }
+    final segments = path.split('/');
+    if (segments.any((part) => part.isEmpty || part == '.' || part == '..')) {
+      throw const FormatException('Git pull response contains an unsafe path.');
+    }
+  }
+}
