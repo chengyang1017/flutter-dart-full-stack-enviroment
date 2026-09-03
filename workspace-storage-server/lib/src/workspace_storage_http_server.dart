@@ -2,19 +2,29 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'workspace_authenticator.dart';
+import 'workspace_git_remote_checker.dart';
 import 'workspace_secret_store.dart';
 import 'workspace_store.dart';
 
 class WorkspaceStorageHttpServer {
   WorkspaceStorageHttpServer({
-    required this.store,
-    required this.secretStore,
+    required FileWorkspaceStore store,
+    required FileWorkspaceSecretStore secretStore,
     required this.authenticator,
+    WorkspaceGitRemoteChecker? gitRemoteChecker,
     this.allowedOrigin = '*',
-  });
+  })  : store = store,
+        secretStore = secretStore,
+        gitRemoteChecker = gitRemoteChecker ??
+            WorkspaceGitRemoteChecker(
+              workspaceStore: store,
+              secretStore: secretStore,
+              executor: const ProcessWorkspaceGitCommandExecutor(),
+            );
 
   final FileWorkspaceStore store;
   final FileWorkspaceSecretStore secretStore;
+  final WorkspaceGitRemoteChecker gitRemoteChecker;
   final WorkspaceAuthenticator authenticator;
   final String allowedOrigin;
 
@@ -76,6 +86,34 @@ class WorkspaceStorageHttpServer {
           snapshot: snapshot,
         );
         await _sendJson(request.response, HttpStatus.created, document);
+        return;
+      }
+
+      if (segments.length == 4 &&
+          segments[2] == 'git' &&
+          segments[3] == 'check' &&
+          request.method == 'POST') {
+        final workspaceId = segments[1];
+        if (workspaceId.isEmpty) {
+          throw const FormatException('Workspace id is required.');
+        }
+        final body = await _readJsonObject(request);
+        final secretName = body['secretName'];
+        final username = body['username'];
+        if (secretName != null && secretName is! String) {
+          throw const FormatException('secretName must be a string.');
+        }
+        if (username != null && username is! String) {
+          throw const FormatException('username must be a string.');
+        }
+
+        final result = await gitRemoteChecker.check(
+          userId: userId,
+          workspaceId: workspaceId,
+          secretName: secretName as String?,
+          username: username as String?,
+        );
+        await _sendJson(request.response, HttpStatus.ok, result.toJson());
         return;
       }
 
@@ -227,6 +265,12 @@ class WorkspaceStorageHttpServer {
         request.response,
         HttpStatus.notFound,
         error.toString(),
+      );
+    } on WorkspaceGitRemoteException catch (error) {
+      await _sendError(
+        request.response,
+        HttpStatus.badGateway,
+        error.message,
       );
     } on FormatException catch (error) {
       await _sendError(
