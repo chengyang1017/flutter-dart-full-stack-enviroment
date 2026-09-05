@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 
-import '../../export/services/workspace_import_picker.dart';
-import '../../project_import/services/flutter_project_zip_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
 import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
@@ -148,45 +146,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _importExistingFlutterProject() async {
-    final library = _projectLibrary;
-    if (library == null || !supportsWorkspaceImportPicker) return;
-
-    try {
-      final bytes = await pickWorkspaceImport();
-      if (bytes == null || !mounted) return;
-
-      final bundle = const FlutterProjectZipImportService().parse(bytes);
-      await controller.flushWorkspacePersistence();
-      await library.touchProject(library.activeProjectId);
-      await library.createImportedFlutter(
-        name: bundle.projectName,
-        snapshot: bundle.snapshot,
-      );
-
-      _disposeControllers();
-      _createControllers();
-      if (!mounted) return;
-      setState(() {});
-
-      final ignored = bundle.ignoredFileCount == 0
-          ? ''
-          : '，忽略 ${bundle.ignoredFileCount} 个生成/平台文件';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文本文件$ignored。',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Flutter ZIP 导入失败：$error')),
-      );
-    }
-  }
-
   Future<void> _renameProject() async {
     final library = _projectLibrary;
     if (library == null) return;
@@ -320,9 +279,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
           activeProject: library.activeProject,
           onSelect: (id) => unawaited(_switchProject(id)),
           onCreate: () => unawaited(_createProject()),
-          onImport: supportsWorkspaceImportPicker
-              ? () => unawaited(_importExistingFlutterProject())
-              : null,
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
