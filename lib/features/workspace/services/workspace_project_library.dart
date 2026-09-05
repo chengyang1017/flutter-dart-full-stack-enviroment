@@ -1,4 +1,5 @@
 import '../models/workspace_project.dart';
+import '../models/workspace_snapshot.dart';
 import 'workspace_project_catalog_store.dart';
 import 'workspace_snapshot_store.dart';
 
@@ -17,6 +18,7 @@ class WorkspaceProjectLibrary {
           name: 'Flutter Practice',
           storageKey: defaultStorageKey,
           kind: WorkspaceProjectKind.practice,
+          lifecycle: WorkspaceLifecycle.saved,
           createdAt: now,
           updatedAt: now,
         ),
@@ -66,6 +68,7 @@ class WorkspaceProjectLibrary {
       name: cleanName,
       storageKey: 'workspace:$id',
       kind: WorkspaceProjectKind.practice,
+      lifecycle: WorkspaceLifecycle.temporary,
       createdAt: now,
       updatedAt: now,
     );
@@ -73,6 +76,40 @@ class WorkspaceProjectLibrary {
     _projects.add(project);
     _activeProjectId = project.id;
     await _persistCatalog();
+    return project;
+  }
+
+  Future<WorkspaceProject> createImportedFlutter({
+    required String name,
+    required WorkspaceSnapshot snapshot,
+  }) async {
+    final cleanName = _validateName(name);
+    final now = DateTime.now().toUtc();
+    final id = _newProjectId(now);
+    final project = WorkspaceProject(
+      id: id,
+      name: cleanName,
+      storageKey: 'workspace:$id',
+      kind: WorkspaceProjectKind.importedFlutter,
+      lifecycle: WorkspaceLifecycle.saved,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await snapshotStore.save(project.storageKey, snapshot);
+    final previousActive = _activeProjectId;
+    _projects.add(project);
+    _activeProjectId = project.id;
+
+    try {
+      await _persistCatalog();
+    } catch (_) {
+      _projects.removeWhere((item) => item.id == project.id);
+      _activeProjectId = previousActive;
+      await snapshotStore.delete(project.storageKey);
+      rethrow;
+    }
+
     return project;
   }
 
@@ -96,6 +133,20 @@ class WorkspaceProjectLibrary {
     _projects[index] = _projects[index].copyWith(
       name: _validateName(name),
       updatedAt: now,
+    );
+    await catalogStore.saveProjects(projects);
+  }
+
+  Future<void> keepProject(String id) async {
+    final index = _projects.indexWhere((project) => project.id == id);
+    if (index == -1) {
+      throw ArgumentError('Workspace project does not exist: $id');
+    }
+    if (_projects[index].lifecycle == WorkspaceLifecycle.saved) return;
+
+    _projects[index] = _projects[index].copyWith(
+      lifecycle: WorkspaceLifecycle.saved,
+      updatedAt: DateTime.now().toUtc(),
     );
     await catalogStore.saveProjects(projects);
   }

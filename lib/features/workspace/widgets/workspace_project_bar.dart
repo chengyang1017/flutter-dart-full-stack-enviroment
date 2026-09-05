@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/workspace_git_remote.dart';
 import '../models/workspace_project.dart';
 
 class WorkspaceProjectBar extends StatelessWidget {
@@ -14,7 +13,6 @@ class WorkspaceProjectBar extends StatelessWidget {
     required this.onDelete,
     this.onImport,
     this.onKeep,
-    this.onGitRemote,
   });
 
   final List<WorkspaceProject> projects;
@@ -25,7 +23,6 @@ class WorkspaceProjectBar extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback? onImport;
   final VoidCallback? onKeep;
-  final VoidCallback? onGitRemote;
 
   @override
   Widget build(BuildContext context) {
@@ -92,54 +89,18 @@ class WorkspaceProjectBar extends StatelessWidget {
                       icon: const Icon(Icons.bookmark_add_outlined, size: 18),
                     ),
                   IconButton(
-                    key: const ValueKey('workspace-project-git'),
-                    tooltip: activeProject.gitRemote == null
-                        ? '绑定 Git 仓库'
-                        : 'Git 仓库设置',
+                    key: const ValueKey('workspace-project-rename'),
+                    tooltip: '重命名当前练习',
                     visualDensity: VisualDensity.compact,
-                    onPressed: onGitRemote,
-                    icon: Icon(
-                      activeProject.gitRemote == null
-                          ? Icons.link_outlined
-                          : Icons.account_tree_outlined,
-                      size: 18,
-                    ),
+                    onPressed: onRename,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
                   ),
-                  PopupMenuButton<_WorkspaceProjectAction>(
-                    key: const ValueKey('workspace-project-more'),
-                    tooltip: 'Workspace 更多操作',
-                    icon: const Icon(Icons.more_vert, size: 19),
-                    onSelected: (action) {
-                      switch (action) {
-                        case _WorkspaceProjectAction.rename:
-                          onRename();
-                          break;
-                        case _WorkspaceProjectAction.delete:
-                          onDelete();
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: _WorkspaceProjectAction.rename,
-                        child: ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.edit_outlined, size: 18),
-                          title: Text('重命名'),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _WorkspaceProjectAction.delete,
-                        enabled: projects.length > 1,
-                        child: const ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.delete_outline, size: 18),
-                          title: Text('删除'),
-                        ),
-                      ),
-                    ],
+                  IconButton(
+                    key: const ValueKey('workspace-project-delete'),
+                    tooltip: '删除当前本地练习',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: projects.length > 1 ? onDelete : null,
+                    icon: const Icon(Icons.delete_outline, size: 18),
                   ),
                   if (showStatus) ...[
                     const SizedBox(width: 8),
@@ -161,30 +122,12 @@ class WorkspaceProjectBar extends StatelessWidget {
   }
 
   String _statusText(WorkspaceProject project) {
-    final localStatus = switch ((project.kind, project.lifecycle)) {
-      (WorkspaceProjectKind.importedFlutter, _) =>
-        '已导入 Flutter Workspace · 浏览器本地保存',
-      (_, WorkspaceLifecycle.temporary) => '临时练习 · 浏览器自动保存',
-      _ => '已保留 Workspace · 浏览器本地保存',
-    };
-
-    final remote = project.gitRemote;
-    if (remote == null) return '$localStatus · 未绑定 Git';
-
-    final provider = _providerLabel(remote.provider);
-    final sync = remote.lastSyncedHead == null ? '待首次同步' : '已同步';
-    return '$localStatus · $provider ${remote.branch} · $sync';
+    if (project.kind == WorkspaceProjectKind.importedFlutter) {
+      return '已导入 Flutter Workspace · 浏览器本地保存';
+    }
+    if (project.lifecycle == WorkspaceLifecycle.temporary) {
+      return '临时练习 · 浏览器自动保存';
+    }
+    return '已保留 Workspace · 浏览器本地保存';
   }
-
-  String _providerLabel(WorkspaceGitProvider provider) => switch (provider) {
-        WorkspaceGitProvider.github => 'GitHub',
-        WorkspaceGitProvider.gitlab => 'GitLab',
-        WorkspaceGitProvider.bitbucket => 'Bitbucket',
-        WorkspaceGitProvider.generic => 'Git',
-      };
-}
-
-enum _WorkspaceProjectAction {
-  rename,
-  delete,
 }

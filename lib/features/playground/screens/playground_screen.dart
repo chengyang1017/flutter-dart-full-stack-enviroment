@@ -1,26 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 
 import '../../export/services/workspace_import_picker.dart';
 import '../../project_import/services/flutter_project_zip_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
-import '../../runner/models/run_session.dart';
-import '../../runner/models/runner_preview_target.dart';
 import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
-import '../../runner/services/runner_preview_tab.dart';
-import '../../runner/widgets/runner_target_dialog.dart';
-import '../../workspace/models/workspace_git_pull.dart';
-import '../../workspace/services/hive_workspace_persistence.dart';
+import '../../workspace/services/hive_workspace_project_catalog_store.dart';
+import '../../workspace/services/hive_workspace_snapshot_store.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
-import '../../workspace/services/workspace_git_connection_runtime.dart';
-import '../../workspace/services/workspace_git_pull_coordinator.dart';
-import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
-import '../../workspace/widgets/workspace_git_connection_dialog.dart';
-import '../../workspace/widgets/workspace_git_remote_dialog.dart';
 import '../../workspace/widgets/workspace_project_bar.dart';
 import '../controllers/playground_controller.dart';
 import '../widgets/compact_playground_layout.dart';
@@ -36,35 +28,43 @@ class PlaygroundScreen extends StatefulWidget {
 
 class _PlaygroundScreenState extends State<PlaygroundScreen> {
   static const _runnerApiUrl = String.fromEnvironment('RUNNER_API_URL');
+  static const _workspaceBoxName = 'workspace_snapshots';
+  static const _workspaceLibraryBoxName = 'workspace_library';
 
   late PlaygroundController controller;
   late FlutterRunnerController runner;
 
-  WorkspacePersistence? _workspacePersistence;
   WorkspaceProjectLibrary? _projectLibrary;
+  WorkspaceSnapshotStore? _snapshotStore;
   KeyedWorkspaceSnapshotStore? _activeProjectStore;
-  WorkspaceGitConnectionRuntime? _gitConnectionRuntime;
-  RunnerPreviewTabHandle? _pendingWebPreviewTab;
 
   @override
   void initState() {
     super.initState();
     _initializeProjectLibrary();
-    _gitConnectionRuntime = WorkspaceGitConnectionRuntime.tryFromEnvironment();
     _createControllers();
   }
 
   void _initializeProjectLibrary() {
-    final persistence = HiveWorkspacePersistence.tryFromOpenBoxes();
-    if (persistence == null) return;
+    if (!Hive.isBoxOpen(_workspaceBoxName)) return;
 
-    _workspacePersistence = persistence;
-    _projectLibrary = WorkspaceProjectLibrary.fromPersistence(persistence);
+    final snapshots = HiveWorkspaceSnapshotStore(
+      Hive.box<dynamic>(_workspaceBoxName),
+    );
+    _snapshotStore = snapshots;
+
+    if (!Hive.isBoxOpen(_workspaceLibraryBoxName)) return;
+    _projectLibrary = WorkspaceProjectLibrary(
+      catalogStore: HiveWorkspaceProjectCatalogStore(
+        Hive.box<dynamic>(_workspaceLibraryBoxName),
+      ),
+      snapshotStore: snapshots,
+    );
   }
 
   void _createControllers() {
     final project = _projectLibrary?.activeProject;
-    final snapshotStore = _workspacePersistence?.snapshotStore;
+    final snapshotStore = _snapshotStore;
 
     WorkspaceSnapshotStore? workspaceStore = snapshotStore;
     if (project != null && snapshotStore != null) {
@@ -89,7 +89,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   }
 
   void _disposeControllers() {
-    _closePendingWebPreviewTab();
     runner.removeListener(_refresh);
     runner.dispose();
     controller.removeListener(_refresh);
@@ -100,90 +99,11 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   @override
   void dispose() {
     _disposeControllers();
-    _gitConnectionRuntime?.close();
     super.dispose();
   }
 
   void _refresh() {
-    final pendingTab = _pendingWebPreviewTab;
-    if (pendingTab != null) {
-      final previewUrl = runner.previewUrl;
-      if (runner.canHotReload && previewUrl != null) {
-        pendingTab.navigate(previewUrl);
-        _pendingWebPreviewTab = null;
-      } else if (runner.status == RunnerStatus.error ||
-          runner.status == RunnerStatus.stopped) {
-        pendingTab.close();
-        _pendingWebPreviewTab = null;
-      }
-    }
-
     if (mounted) setState(() {});
-  }
-
-  void _closePendingWebPreviewTab() {
-    _pendingWebPreviewTab?.close();
-    _pendingWebPreviewTab = null;
-  }
-
-  void _showRunTargetDialog(
-    BuildContext dialogContext, {
-    TabController? compactTabs,
-  }) {
-    if (!runner.canRun) return;
-
-    showDialog<void>(
-      context: dialogContext,
-      builder: (_) => RunnerTargetDialog(
-        onSelected: (target) {
-          unawaited(
-            _runTarget(
-              target,
-              compactTabs: compactTabs,
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _runTarget(
-    RunnerPreviewTarget target, {
-    TabController? compactTabs,
-  }) async {
-    if (!runner.canRun) return;
-
-    if (target.opensExternalTab && !runner.isMock) {
-      _closePendingWebPreviewTab();
-      final tab = openRunnerPreviewTab();
-      if (tab.opened) {
-        _pendingWebPreviewTab = tab;
-      } else {
-        scheduleMicrotask(() {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('浏览器阻止了网页预览标签页。请允许本站打开弹窗后重新运行。'),
-            ),
-          );
-        });
-      }
-    } else if (target.opensExternalTab && runner.isMock) {
-      scheduleMicrotask(() {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mock Runner 没有真实网页 Preview URL。请连接真实 Runner 后使用网页运行。'),
-          ),
-        );
-      });
-    }
-
-    runner.selectPreviewTarget(target);
-    await runner.run();
-
-    if (!mounted || target.opensExternalTab) return;
-    compactTabs?.animateTo(1);
   }
 
   Future<void> _switchProject(String projectId) async {
@@ -255,7 +175,7 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文件$ignored。',
+            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文本文件$ignored。',
           ),
         ),
       );
@@ -305,146 +225,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('保留 Workspace 失败：$error')),
-      );
-    }
-  }
-
-  Future<void> _openGitTools() async {
-    final library = _projectLibrary;
-    if (library == null) return;
-    final project = library.activeProject;
-
-    if (project.gitRemote == null) {
-      await _configureGitRemote();
-      return;
-    }
-
-    final runtime = _gitConnectionRuntime;
-    if (runtime == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Git 远端服务未连接。请配置 WORKSPACE_STORAGE_API_URL 和 WORKSPACE_ACCESS_TOKEN。',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final pullCoordinator = WorkspaceGitPullCoordinator(
-      workspace: controller.workspace,
-      projects: library,
-      git: runtime.coordinator.git,
-    );
-
-    var editRemote = false;
-    final pulled = await showDialog<WorkspaceGitPullResult>(
-      context: context,
-      builder: (dialogContext) => WorkspaceGitConnectionDialog(
-        project: project,
-        loadSecrets: () => runtime.coordinator.listGitSecrets(
-          project: project,
-          snapshot: controller.workspace.createSnapshot(),
-        ),
-        checkConnection: ({secretName, secretValue, username}) =>
-            runtime.coordinator.check(
-          project: project,
-          snapshot: controller.workspace.createSnapshot(),
-          secretName: secretName,
-          secretValue: secretValue,
-          username: username,
-        ),
-        pullRemote: ({secretName, username, allowDirtyOverwrite = false}) async {
-          // Ensure the remote document exists and has the active Git binding.
-          // Existing cloud source is preserved by the connection coordinator.
-          await runtime.coordinator.listGitSecrets(
-            project: library.activeProject,
-            snapshot: controller.workspace.createSnapshot(),
-          );
-          return pullCoordinator.pullCurrent(
-            secretName: secretName,
-            username: username,
-            allowDirtyOverwrite: allowDirtyOverwrite,
-          );
-        },
-        hasLocalChanges: controller.workspace.isDirty,
-        onEditRemote: () {
-          editRemote = true;
-          Navigator.pop(dialogContext);
-        },
-      ),
-    );
-
-    if (pulled != null && mounted) {
-      setState(() {});
-      final ignored = pulled.ignoredFileCount == 0
-          ? ''
-          : '，忽略 ${pulled.ignoredFileCount} 个生成/平台文件';
-      final shortHead = pulled.remoteHead.length <= 12
-          ? pulled.remoteHead
-          : pulled.remoteHead.substring(0, 12);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Git Pull 完成：${pulled.importedFileCount} 个文件$ignored · HEAD $shortHead',
-          ),
-        ),
-      );
-    }
-
-    if (editRemote && mounted) {
-      await _configureGitRemote();
-    }
-  }
-
-  Future<void> _configureGitRemote() async {
-    final library = _projectLibrary;
-    if (library == null) return;
-    final project = library.activeProject;
-
-    final result = await showDialog<WorkspaceGitRemoteDialogResult>(
-      context: context,
-      builder: (_) => WorkspaceGitRemoteDialog(
-        initialRemote: project.gitRemote,
-      ),
-    );
-    if (result == null || !mounted) return;
-
-    try {
-      if (result.unbind) {
-        await library.unbindGitRemote(project.id);
-        if (!mounted) return;
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已解绑 ${project.name} 的 Git 仓库。')),
-        );
-        return;
-      }
-
-      final remote = result.remote;
-      if (remote == null) return;
-      final existing = project.gitRemote;
-      final sameRemote = existing != null &&
-          existing.repositoryUrl == remote.repositoryUrl &&
-          existing.remoteName == remote.remoteName &&
-          existing.branch == remote.branch;
-      final binding = sameRemote
-          ? remote.copyWith(lastSyncedHead: existing.lastSyncedHead)
-          : remote;
-
-      await library.bindGitRemote(project.id, binding);
-      if (!mounted) return;
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已绑定 ${binding.repositoryUrl} · ${binding.branch}'),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Git 仓库设置失败：$error')),
       );
     }
   }
@@ -564,7 +344,6 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
               ? () => unawaited(_importExistingFlutterProject())
               : null,
           onKeep: () => unawaited(_keepProject()),
-          onGitRemote: () => unawaited(_openGitTools()),
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
@@ -584,34 +363,30 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
                 return DefaultTabController(
                   length: 4,
                   child: Builder(
-                    builder: (tabContext) {
-                      final tabs = DefaultTabController.of(tabContext);
-                      return CompactPlaygroundLayout(
-                        controller: controller,
-                        runner: runner,
-                        toolbar: _buildToolbar(
-                          compact: true,
-                          onRun: () => _showRunTargetDialog(
-                            tabContext,
-                            compactTabs: tabs,
-                          ),
-                          onQuickPreview: () {
-                            controller.runCode();
-                            tabs.animateTo(1);
-                          },
-                        ),
-                      );
-                    },
+                    builder: (tabContext) => CompactPlaygroundLayout(
+                      controller: controller,
+                      runner: runner,
+                      toolbar: _buildToolbar(
+                        compact: true,
+                        onRun: () async {
+                          await runner.run();
+                          if (tabContext.mounted) {
+                            DefaultTabController.of(tabContext).animateTo(1);
+                          }
+                        },
+                        onQuickPreview: () {
+                          controller.runCode();
+                          DefaultTabController.of(tabContext).animateTo(1);
+                        },
+                      ),
+                    ),
                   ),
                 );
               }
               return WidePlaygroundLayout(
                 controller: controller,
                 runner: runner,
-                toolbar: _buildToolbar(
-                  compact: false,
-                  onRun: () => _showRunTargetDialog(context),
-                ),
+                toolbar: _buildToolbar(compact: false),
               );
             },
           ),
