@@ -134,23 +134,49 @@ class PlaygroundToolbar extends StatelessWidget {
                   label: const Text('Stop'),
                 ),
                 const SizedBox(width: 8),
-                // Undo / Redo buttons with keyboard hints
-                IconButton(
-                  tooltip: '撤销 (Ctrl/Cmd+Z)',
-                  onPressed: controller.canUndo ? controller.undo : null,
-                  icon: const Icon(Icons.undo),
+
+                // Undo / Redo buttons with keyboard hints and improved UX
+                Tooltip(
+                  message: controller.canUndo ? '撤销 (Ctrl/Cmd+Z)' : '无可撤销的操作',
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: IconButton(
+                    onPressed: controller.canUndo ? controller.undo : null,
+                    icon: Icon(
+                      Icons.undo,
+                      color: controller.canUndo
+                          ? null
+                          : Theme.of(context).disabledColor,
+                    ),
+                  ),
                 ),
-                IconButton(
-                  tooltip: '重做 (Ctrl+Y / Cmd+Shift+Z)',
-                  onPressed: controller.canRedo ? controller.redo : null,
-                  icon: const Icon(Icons.redo),
+                Tooltip(
+                  message: controller.canRedo ? '重做 (Ctrl+Y / Cmd+Shift+Z)' : '无可重做的操作',
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: IconButton(
+                    onPressed: controller.canRedo ? controller.redo : null,
+                    icon: Icon(
+                      Icons.redo,
+                      color: controller.canRedo
+                          ? null
+                          : Theme.of(context).disabledColor,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(visualDensity: density),
-                  onPressed: controller.formatCode,
-                  icon: const Icon(Icons.format_align_left),
-                  label: const Text('格式化'),
+
+                Tooltip(
+                  message: '格式化 (Ctrl/Cmd+Shift+F)',
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: density,
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      disabledForegroundColor: Theme.of(context).disabledColor,
+                    ),
+                    onPressed: controller.formatCode,
+                    icon: const Icon(Icons.format_align_left),
+                    label: const Text('格式化'),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 OutlinedButton.icon(
