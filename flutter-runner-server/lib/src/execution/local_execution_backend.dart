@@ -8,13 +8,9 @@ import 'execution_backend.dart';
 class LocalExecutionBackend implements RunnerExecutionBackend {
   LocalExecutionBackend({
     required this.flutterExecutable,
-    this.dartExecutable = 'dart',
-    this.dartFrogExecutable = 'dart_frog',
   });
 
   final String flutterExecutable;
-  final String dartExecutable;
-  final String dartFrogExecutable;
 
   @override
   String get name => 'local';
@@ -31,23 +27,6 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
       session,
       flutterExecutable,
       arguments,
-      workingDirectory: session.directory.path,
-    );
-  }
-
-  @override
-  Future<int> runDartCommand(
-    RunnerSession session,
-    List<String> arguments, {
-    String workingDirectory = 'backend',
-  }) {
-    return _runLoggedProcess(
-      session,
-      dartExecutable,
-      arguments,
-      workingDirectory: _workingDirectory(session, workingDirectory),
-      logPrefix: '[backend] ',
-      stderrPrefix: '[backend stderr] ',
     );
   }
 
@@ -59,9 +38,8 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
 
   @override
   Future<RunnerProcessLaunch> startFlutterWeb(
-    RunnerSession session, {
-    Map<String, String> dartDefines = const <String, String>{},
-  }) async {
+    RunnerSession session,
+  ) async {
     final port = await _reservePort();
     final arguments = <String>[
       'run',
@@ -69,8 +47,6 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
       'web-server',
       '--web-hostname=0.0.0.0',
       '--web-port=$port',
-      for (final entry in dartDefines.entries)
-        '--dart-define=${entry.key}=${entry.value}',
     ];
 
     final process = await Process.start(
@@ -83,37 +59,8 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
     return RunnerProcessLaunch(
       process: process,
       previewPort: port,
-      description: 'flutter ${arguments.join(' ')}',
-    );
-  }
-
-  @override
-  Future<RunnerProcessLaunch> startDartFrog(
-    RunnerSession session,
-  ) async {
-    final port = await _reservePort();
-    final vmServicePort = await _reservePort();
-    final arguments = <String>[
-      'dev',
-      '--host',
-      '0.0.0.0',
-      '--port',
-      '$port',
-      '--dart-vm-service-port',
-      '$vmServicePort',
-    ];
-
-    final process = await Process.start(
-      dartFrogExecutable,
-      arguments,
-      workingDirectory: _workingDirectory(session, 'backend'),
-      runInShell: true,
-    );
-
-    return RunnerProcessLaunch(
-      process: process,
-      previewPort: port,
-      description: 'dart_frog ${arguments.join(' ')}',
+      description:
+          'flutter run -d web-server --web-hostname=0.0.0.0 --web-port=$port',
     );
   }
 
@@ -136,42 +83,26 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
   Future<int> _runLoggedProcess(
     RunnerSession session,
     String executable,
-    List<String> arguments, {
-    required String workingDirectory,
-    String logPrefix = '',
-    String stderrPrefix = '[stderr] ',
-  }) async {
+    List<String> arguments,
+  ) async {
     final process = await Process.start(
       executable,
       arguments,
-      workingDirectory: workingDirectory,
+      workingDirectory: session.directory.path,
       runInShell: true,
     );
 
     final stdoutDone = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .forEach((line) => session.addLog('$logPrefix$line'));
+        .forEach(session.addLog);
     final stderrDone = process.stderr
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .forEach((line) => session.addLog('$stderrPrefix$line'));
+        .forEach((line) => session.addLog('[stderr] $line'));
     final exitCode = await process.exitCode;
     await Future.wait([stdoutDone, stderrDone]);
     return exitCode;
-  }
-
-  String _workingDirectory(
-    RunnerSession session,
-    String relativePath,
-  ) {
-    if (relativePath.isEmpty || relativePath == '.') {
-      return session.directory.path;
-    }
-    return [
-      session.directory.path,
-      ...relativePath.split('/'),
-    ].join(Platform.pathSeparator);
   }
 
   Future<int> _reservePort() async {
