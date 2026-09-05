@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 
+import '../../export/services/workspace_import_picker.dart';
+import '../../project_import/services/flutter_project_zip_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
 import '../../runner/models/run_session.dart';
 import '../../runner/models/runner_preview_target.dart';
@@ -10,11 +11,12 @@ import '../../runner/services/http_flutter_runner_client.dart';
 import '../../runner/services/mock_flutter_runner_client.dart';
 import '../../runner/services/runner_preview_tab.dart';
 import '../../runner/widgets/runner_target_dialog.dart';
-import '../../workspace/services/hive_workspace_project_catalog_store.dart';
-import '../../workspace/services/hive_workspace_snapshot_store.dart';
+import '../../workspace/services/hive_workspace_persistence.dart';
 import '../../workspace/services/keyed_workspace_snapshot_store.dart';
+import '../../workspace/services/workspace_persistence.dart';
 import '../../workspace/services/workspace_project_library.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
+import '../../workspace/widgets/workspace_git_remote_dialog.dart';
 import '../../workspace/widgets/workspace_project_bar.dart';
 import '../controllers/playground_controller.dart';
 import '../widgets/compact_playground_layout.dart';
@@ -30,14 +32,12 @@ class PlaygroundScreen extends StatefulWidget {
 
 class _PlaygroundScreenState extends State<PlaygroundScreen> {
   static const _runnerApiUrl = String.fromEnvironment('RUNNER_API_URL');
-  static const _workspaceBoxName = 'workspace_snapshots';
-  static const _workspaceLibraryBoxName = 'workspace_library';
 
   late PlaygroundController controller;
   late FlutterRunnerController runner;
 
+  WorkspacePersistence? _workspacePersistence;
   WorkspaceProjectLibrary? _projectLibrary;
-  WorkspaceSnapshotStore? _snapshotStore;
   KeyedWorkspaceSnapshotStore? _activeProjectStore;
   RunnerPreviewTabHandle? _pendingWebPreviewTab;
 
@@ -49,25 +49,16 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   }
 
   void _initializeProjectLibrary() {
-    if (!Hive.isBoxOpen(_workspaceBoxName)) return;
+    final persistence = HiveWorkspacePersistence.tryFromOpenBoxes();
+    if (persistence == null) return;
 
-    final snapshots = HiveWorkspaceSnapshotStore(
-      Hive.box<dynamic>(_workspaceBoxName),
-    );
-    _snapshotStore = snapshots;
-
-    if (!Hive.isBoxOpen(_workspaceLibraryBoxName)) return;
-    _projectLibrary = WorkspaceProjectLibrary(
-      catalogStore: HiveWorkspaceProjectCatalogStore(
-        Hive.box<dynamic>(_workspaceLibraryBoxName),
-      ),
-      snapshotStore: snapshots,
-    );
+    _workspacePersistence = persistence;
+    _projectLibrary = WorkspaceProjectLibrary.fromPersistence(persistence);
   }
 
   void _createControllers() {
     final project = _projectLibrary?.activeProject;
-    final snapshotStore = _snapshotStore;
+    final snapshotStore = _workspacePersistence?.snapshotStore;
 
     WorkspaceSnapshotStore? workspaceStore = snapshotStore;
     if (project != null && snapshotStore != null) {
@@ -230,6 +221,45 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _importExistingFlutterProject() async {
+    final library = _projectLibrary;
+    if (library == null || !supportsWorkspaceImportPicker) return;
+
+    try {
+      final bytes = await pickWorkspaceImport();
+      if (bytes == null || !mounted) return;
+
+      final bundle = const FlutterProjectZipImportService().parse(bytes);
+      await controller.flushWorkspacePersistence();
+      await library.touchProject(library.activeProjectId);
+      await library.createImportedFlutter(
+        name: bundle.projectName,
+        snapshot: bundle.snapshot,
+      );
+
+      _disposeControllers();
+      _createControllers();
+      if (!mounted) return;
+      setState(() {});
+
+      final ignored = bundle.ignoredFileCount == 0
+          ? ''
+          : '，忽略 ${bundle.ignoredFileCount} 个生成/平台文件';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '已导入 ${bundle.projectName}：${bundle.importedFileCount} 个文本文件$ignored。',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Flutter ZIP 导入失败：$error')),
+      );
+    }
+  }
+
   Future<void> _renameProject() async {
     final library = _projectLibrary;
     if (library == null) return;
@@ -248,6 +278,77 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('重命名失败：$error')),
+      );
+    }
+  }
+
+  Future<void> _keepProject() async {
+    final library = _projectLibrary;
+    if (library == null) return;
+    final project = library.activeProject;
+
+    try {
+      await library.keepProject(project.id);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已保留 ${project.name}，不会再作为临时练习处理。')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保留 Workspace 失败：$error')),
+      );
+    }
+  }
+
+  Future<void> _configureGitRemote() async {
+    final library = _projectLibrary;
+    if (library == null) return;
+    final project = library.activeProject;
+
+    final result = await showDialog<WorkspaceGitRemoteDialogResult>(
+      context: context,
+      builder: (_) => WorkspaceGitRemoteDialog(
+        initialRemote: project.gitRemote,
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    try {
+      if (result.unbind) {
+        await library.unbindGitRemote(project.id);
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已解绑 ${project.name} 的 Git 仓库。')),
+        );
+        return;
+      }
+
+      final remote = result.remote;
+      if (remote == null) return;
+      final existing = project.gitRemote;
+      final sameRemote = existing != null &&
+          existing.repositoryUrl == remote.repositoryUrl &&
+          existing.remoteName == remote.remoteName &&
+          existing.branch == remote.branch;
+      final binding = sameRemote
+          ? remote.copyWith(lastSyncedHead: existing.lastSyncedHead)
+          : remote;
+
+      await library.bindGitRemote(project.id, binding);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已绑定 ${binding.repositoryUrl} · ${binding.branch}'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Git 仓库设置失败：$error')),
       );
     }
   }
@@ -363,6 +464,11 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
           activeProject: library.activeProject,
           onSelect: (id) => unawaited(_switchProject(id)),
           onCreate: () => unawaited(_createProject()),
+          onImport: supportsWorkspaceImportPicker
+              ? () => unawaited(_importExistingFlutterProject())
+              : null,
+          onKeep: () => unawaited(_keepProject()),
+          onGitRemote: () => unawaited(_configureGitRemote()),
           onRename: () => unawaited(_renameProject()),
           onDelete: () => unawaited(_deleteProject()),
         ),
