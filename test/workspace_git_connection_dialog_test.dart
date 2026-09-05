@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_ui_playground/features/workspace/models/workspace_git_pull.dart';
-import 'package:flutter_ui_playground/features/workspace/models/workspace_git_push.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_git_remote.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_git_remote_check.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_project.dart';
@@ -25,7 +23,6 @@ void main() {
       gitRemote: WorkspaceGitRemote(
         repositoryUrl: 'https://github.com/team/app.git',
         branch: 'main',
-        lastSyncedHead: 'aaaaaaaaaaaaaaaa',
       ),
     );
   });
@@ -39,7 +36,7 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
+              onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => WorkspaceGitConnectionDialog(
                   project: project,
@@ -47,11 +44,17 @@ void main() {
                   checkConnection: ({secretName, secretValue, username}) async {
                     checkedSecretName = secretName;
                     checkedSecretValue = secretValue;
-                    return _successfulCheck();
+                    return const WorkspaceGitConnectionCheck(
+                      result: WorkspaceGitRemoteCheckResult(
+                        repositoryUrl: 'https://github.com/team/app.git',
+                        branch: 'main',
+                        provider: 'github',
+                        reachable: true,
+                        branchFound: true,
+                        remoteHead: 'aaaaaaaaaaaaaaaa',
+                      ),
+                    );
                   },
-                  pullRemote: _unusedPull,
-                  pushRemote: _unusedPush,
-                  hasLocalChanges: false,
                   onEditRemote: () {},
                 ),
               ),
@@ -86,7 +89,7 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
+              onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => WorkspaceGitConnectionDialog(
                   project: project,
@@ -95,9 +98,6 @@ void main() {
                     checkCalls += 1;
                     throw StateError('should not run');
                   },
-                  pullRemote: _unusedPull,
-                  pushRemote: _unusedPush,
-                  hasLocalChanges: false,
                   onEditRemote: () {},
                 ),
               ),
@@ -134,7 +134,7 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
+              onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => WorkspaceGitConnectionDialog(
                   project: project,
@@ -151,9 +151,6 @@ void main() {
                       ),
                     );
                   },
-                  pullRemote: _unusedPull,
-                  pushRemote: _unusedPush,
-                  hasLocalChanges: false,
                   onEditRemote: () {},
                 ),
               ),
@@ -172,228 +169,7 @@ void main() {
     expect(checkedSecretName, isNull);
     expect(find.textContaining('找不到分支 main'), findsOneWidget);
   });
-
-  testWidgets('pull uses selected vault secret and closes with result', (
-    tester,
-  ) async {
-    String? pullSecretName;
-    var pullCalls = 0;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
-                context: context,
-                builder: (_) => WorkspaceGitConnectionDialog(
-                  project: project,
-                  loadSecrets: () async => [_secret('GITHUB_TOKEN')],
-                  checkConnection: ({secretName, secretValue, username}) async =>
-                      _successfulCheck(),
-                  pullRemote: ({
-                    secretName,
-                    username,
-                    allowDirtyOverwrite = false,
-                  }) async {
-                    pullCalls += 1;
-                    pullSecretName = secretName;
-                    expect(allowDirtyOverwrite, isFalse);
-                    return _pullResult();
-                  },
-                  pushRemote: _unusedPush,
-                  hasLocalChanges: false,
-                  onEditRemote: () {},
-                ),
-              ),
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-git-secret-GITHUB_TOKEN')));
-    await tester.tap(find.byKey(const ValueKey('workspace-git-pull')));
-    await tester.pumpAndSettle();
-
-    expect(pullCalls, 1);
-    expect(pullSecretName, 'GITHUB_TOKEN');
-    expect(find.byKey(const ValueKey('workspace-git-pull')), findsNothing);
-  });
-
-  testWidgets('dirty Workspace requires explicit overwrite before pull', (
-    tester,
-  ) async {
-    bool? receivedAllowDirtyOverwrite;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
-                context: context,
-                builder: (_) => WorkspaceGitConnectionDialog(
-                  project: project,
-                  loadSecrets: () async => const [],
-                  checkConnection: ({secretName, secretValue, username}) async =>
-                      _successfulCheck(),
-                  pullRemote: ({
-                    secretName,
-                    username,
-                    allowDirtyOverwrite = false,
-                  }) async {
-                    receivedAllowDirtyOverwrite = allowDirtyOverwrite;
-                    return _pullResult();
-                  },
-                  pushRemote: _unusedPush,
-                  hasLocalChanges: true,
-                  onEditRemote: () {},
-                ),
-              ),
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-git-pull')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('用 Git 远端覆盖本地修改？'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('workspace-git-pull-confirm-overwrite')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(receivedAllowDirtyOverwrite, isTrue);
-  });
-
-  testWidgets('Commit and Push sends commit metadata and selected vault secret', (
-    tester,
-  ) async {
-    String? pushedSecretName;
-    String? pushedMessage;
-    String? pushedAuthorName;
-    String? pushedAuthorEmail;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showDialog<WorkspaceGitDialogResult>(
-                context: context,
-                builder: (_) => WorkspaceGitConnectionDialog(
-                  project: project,
-                  loadSecrets: () async => [_secret('GITHUB_TOKEN')],
-                  checkConnection: ({secretName, secretValue, username}) async =>
-                      _successfulCheck(),
-                  pullRemote: _unusedPull,
-                  pushRemote: ({
-                    required commitMessage,
-                    required authorName,
-                    required authorEmail,
-                    secretName,
-                    username,
-                  }) async {
-                    pushedSecretName = secretName;
-                    pushedMessage = commitMessage;
-                    pushedAuthorName = authorName;
-                    pushedAuthorEmail = authorEmail;
-                    return _pushResult();
-                  },
-                  hasLocalChanges: true,
-                  onEditRemote: () {},
-                ),
-              ),
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-git-secret-GITHUB_TOKEN')));
-    await tester.enterText(
-      find.byKey(const ValueKey('workspace-git-commit-message')),
-      'feat: sync playground',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('workspace-git-author-name')),
-      'Alice Developer',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('workspace-git-author-email')),
-      'alice@example.com',
-    );
-    await tester.tap(find.byKey(const ValueKey('workspace-git-push')));
-    await tester.pumpAndSettle();
-
-    expect(pushedSecretName, 'GITHUB_TOKEN');
-    expect(pushedMessage, 'feat: sync playground');
-    expect(pushedAuthorName, 'Alice Developer');
-    expect(pushedAuthorEmail, 'alice@example.com');
-    expect(find.byKey(const ValueKey('workspace-git-push')), findsNothing);
-  });
 }
-
-Future<WorkspaceGitPullResult> _unusedPull({
-  String? secretName,
-  String? username,
-  bool allowDirtyOverwrite = false,
-}) => throw StateError('pull should not run');
-
-Future<WorkspaceGitPushResult> _unusedPush({
-  required String commitMessage,
-  required String authorName,
-  required String authorEmail,
-  String? secretName,
-  String? username,
-}) => throw StateError('push should not run');
-
-WorkspaceGitConnectionCheck _successfulCheck() =>
-    const WorkspaceGitConnectionCheck(
-      result: WorkspaceGitRemoteCheckResult(
-        repositoryUrl: 'https://github.com/team/app.git',
-        branch: 'main',
-        provider: 'github',
-        reachable: true,
-        branchFound: true,
-        remoteHead: 'aaaaaaaaaaaaaaaa',
-      ),
-    );
-
-WorkspaceGitPullResult _pullResult() => WorkspaceGitPullResult(
-      repositoryUrl: 'https://github.com/team/app.git',
-      branch: 'main',
-      provider: 'github',
-      projectName: 'app',
-      remoteHead: 'bbbbbbbbbbbbbbbb',
-      files: <String, String>{
-        'pubspec.yaml': 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n',
-        'lib/main.dart': 'void main() {}\n',
-      },
-      importedFileCount: 2,
-      ignoredFileCount: 0,
-    );
-
-WorkspaceGitPushResult _pushResult() => const WorkspaceGitPushResult(
-      repositoryUrl: 'https://github.com/team/app.git',
-      branch: 'main',
-      provider: 'github',
-      previousRemoteHead: 'aaaaaaaaaaaaaaaa',
-      newRemoteHead: 'bbbbbbbbbbbbbbbb',
-      committed: true,
-    );
 
 WorkspaceSecretMetadata _secret(String name) {
   final now = DateTime.utc(2026, 9, 3);
