@@ -25,11 +25,25 @@ class WorkspaceAutosave {
   bool restoredSnapshot = false;
   bool _disposed = false;
   bool _saveRequested = false;
+  Timer? _debounce;
   Future<void>? _saveLoop;
 
   void _handleWorkspaceChanged() {
+    requestSave();
+  }
+
+  void requestSave({
+    Duration delay = const Duration(milliseconds: 250),
+  }) {
     if (_disposed) return;
     _saveRequested = true;
+    _debounce?.cancel();
+    _debounce = Timer(delay, _startSaveLoop);
+  }
+
+  void _startSaveLoop() {
+    _debounce = null;
+    if (_disposed || !_saveRequested) return;
     _saveLoop ??= _drainSaves();
   }
 
@@ -42,7 +56,7 @@ class WorkspaceAutosave {
       }
     } finally {
       _saveLoop = null;
-      if (_saveRequested && !_disposed) {
+      if (_saveRequested && !_disposed && _debounce == null) {
         _saveLoop = _drainSaves();
       }
     }
@@ -50,12 +64,16 @@ class WorkspaceAutosave {
 
   Future<void> flush() async {
     if (_disposed) return;
+    _debounce?.cancel();
+    _debounce = null;
     _saveRequested = true;
     _saveLoop ??= _drainSaves();
     await _saveLoop;
   }
 
   Future<void> clear() async {
+    _debounce?.cancel();
+    _debounce = null;
     _saveRequested = false;
     await store.delete(storageKey);
   }
@@ -63,8 +81,19 @@ class WorkspaceAutosave {
   void dispose() {
     if (_disposed) return;
     workspace.removeListener(_handleWorkspaceChanged);
+    _debounce?.cancel();
+    _debounce = null;
+    _saveRequested = false;
     final finalSnapshot = workspace.createSnapshot();
+    final pendingSave = _saveLoop;
     _disposed = true;
-    unawaited(store.save(storageKey, finalSnapshot));
+
+    if (pendingSave == null) {
+      unawaited(store.save(storageKey, finalSnapshot));
+    } else {
+      unawaited(
+        pendingSave.then((_) => store.save(storageKey, finalSnapshot)),
+      );
+    }
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter_ui_playground/features/playground/controllers/playground
 import 'package:flutter_ui_playground/features/workspace/models/workspace_change.dart';
 import 'package:flutter_ui_playground/features/workspace/models/workspace_snapshot.dart';
 import 'package:flutter_ui_playground/features/workspace/services/workspace_snapshot_store.dart';
+import 'package:re_editor/re_editor.dart';
 
 void main() {
   test('browser workspace autosave restores files, tabs and dirty state', () async {
@@ -60,6 +61,50 @@ void main() {
     );
   });
 
+  test('browser workspace restores explorer, selection and scroll per file', () async {
+    final store = _MemoryWorkspaceSnapshotStore();
+
+    final first = PlaygroundController(workspaceStore: store);
+    first.workspace.setDirectoryExpanded('lib', false);
+    first.workspace.createDirectory('lib', 'screens');
+    first.selectWorkspaceFile('pubspec.yaml');
+
+    final pubspecId = first.workspace.entryAt('pubspec.yaml')!.id;
+    first.workspace.updateEditorStateByEntryId(
+      pubspecId,
+      const WorkspaceEditorState(
+        verticalOffset: 144,
+        horizontalOffset: 28,
+      ),
+    );
+    first.textController.selection = const CodeLineSelection.collapsed(
+      index: 1,
+      offset: 3,
+    );
+
+    await first.flushWorkspacePersistence();
+    first.dispose();
+
+    final second = PlaygroundController(workspaceStore: store);
+    addTearDown(second.dispose);
+
+    expect(second.workspace.activePath, 'pubspec.yaml');
+    expect(second.workspace.isDirectoryExpanded('lib'), isFalse);
+    expect(second.workspace.isDirectoryExpanded('lib/screens'), isTrue);
+    expect(second.textController.selection.baseIndex, 1);
+    expect(second.textController.selection.baseOffset, 3);
+    expect(second.textController.selection.extentIndex, 1);
+    expect(second.textController.selection.extentOffset, 3);
+    expect(
+      second.editorScrollController.verticalScroller.initialScrollOffset,
+      144,
+    );
+    expect(
+      second.editorScrollController.horizontalScroller.initialScrollOffset,
+      28,
+    );
+  });
+
   test('workspace snapshot JSON round trip preserves base snapshot metadata', () {
     final controller = PlaygroundController();
     addTearDown(controller.dispose);
@@ -76,6 +121,24 @@ void main() {
       WorkspaceChangeType.renamed,
     );
     expect(controller.workspace.changes.single.previousPath, 'lib/main.dart');
+  });
+
+  test('v1 browser snapshots remain compatible with v2 UI-state restore', () {
+    final controller = PlaygroundController();
+    addTearDown(controller.dispose);
+
+    final legacyJson = controller.workspace.createSnapshot().toJson()
+      ..['formatVersion'] = 1
+      ..remove('expandedDirectoryIds')
+      ..remove('editorStates');
+
+    final decoded = WorkspaceSnapshot.fromJson(legacyJson);
+    controller.workspace.restoreSnapshot(decoded);
+
+    expect(decoded.formatVersion, 1);
+    expect(controller.workspace.isDirectoryExpanded('lib'), isTrue);
+    expect(controller.workspace.isDirectoryExpanded('assets'), isTrue);
+    expect(controller.workspace.editorStateForPath('lib/main.dart'), isNull);
   });
 }
 
