@@ -265,13 +265,97 @@ class PlaygroundToolbar extends StatelessWidget {
                             content: SingleChildScrollView(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
-                                children: EditorEnhancements.keyboardShortcuts.entries
-                                    .map((entry) => ListTile(
-                                          dense: true,
-                                          title: Text(entry.key),
-                                          trailing: Text(entry.value),
-                                        ))
-                                    .toList(),
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: () {
+                                  // Localized labels and grouping for shortcuts
+                                  final Map<String, String> labels = {
+                                    'format': '格式化',
+                                    'undo': '撤销',
+                                    'redo': '重做',
+                                    'comment': '注释/取消注释',
+                                    'duplicate_line': '复制行',
+                                    'delete_line': '删除行',
+                                    'move_line_up': '上移行',
+                                    'move_line_down': '下移行',
+                                    'find': '查找',
+                                    'replace': '替换',
+                                    'find_next': '查找下一个',
+                                    'go_to_line': '跳到行',
+                                    'go_to_definition': '转到定义',
+                                    'go_back': '后退',
+                                    'go_forward': '前进',
+                                    'autocomplete': '自动补全',
+                                    'snippet_next': '片段: 下一个',
+                                    'snippet_previous': '片段: 上一个',
+                                    'save': '保存',
+                                    'save_all': '全部保存',
+                                  };
+
+                                  final Map<String, List<String>> groups = {
+                                    '编辑': [
+                                      'format',
+                                      'undo',
+                                      'redo',
+                                      'comment',
+                                      'duplicate_line',
+                                      'delete_line',
+                                      'move_line_up',
+                                      'move_line_down',
+                                      'save',
+                                      'save_all',
+                                    ],
+                                    '导航 / 搜索': [
+                                      'find',
+                                      'replace',
+                                      'find_next',
+                                      'go_to_line',
+                                      'go_to_definition',
+                                      'go_back',
+                                      'go_forward',
+                                    ],
+                                    '片段与补全': [
+                                      'autocomplete',
+                                      'snippet_next',
+                                      'snippet_previous',
+                                    ],
+                                    '其他': EditorEnhancements.keyboardShortcuts.keys
+                                        .where((k) => !labels.keys.contains(k))
+                                        .toList(),
+                                  };
+
+                                  final List<Widget> widgets = [];
+
+                                  for (final group in groups.entries) {
+                                    final visible = group.value
+                                        .where((k) => EditorEnhancements.keyboardShortcuts.containsKey(k))
+                                        .toList();
+                                    if (visible.isEmpty) continue;
+
+                                    widgets.add(Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                      child: Text(
+                                        group.key,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ));
+
+                                    for (final key in visible) {
+                                      final label = labels[key] ?? key;
+                                      final combo = EditorEnhancements.keyboardShortcuts[key] ?? '';
+                                      widgets.add(ListTile(
+                                        dense: true,
+                                        title: Text(label),
+                                        trailing: Text(combo),
+                                      ));
+                                    }
+
+                                    widgets.add(const Divider());
+                                  }
+
+                                  return widgets;
+                                }(),
                               ),
                             ),
                             actions: [
