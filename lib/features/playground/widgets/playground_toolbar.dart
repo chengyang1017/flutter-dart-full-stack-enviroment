@@ -10,6 +10,7 @@ import '../../runner/widgets/dart_frog_api_lab_dialog.dart';
 import '../../workspace/services/dart_frog_workspace_service.dart';
 import '../../workspace/services/serverpod_workspace_service.dart';
 import '../controllers/playground_controller.dart';
+import '../../core/editor_enhancements.dart';
 import 'supported_widgets_dialog.dart';
 
 class PlaygroundToolbar extends StatelessWidget {
@@ -249,6 +250,44 @@ class PlaygroundToolbar extends StatelessWidget {
                     ),
                   ],
                 ),
+                // 快捷键帮助（? 弹窗）
+                Tooltip(
+                  message: '快捷键帮助',
+                  waitDuration: const Duration(milliseconds: 400),
+                  child: IconButton(
+                    tooltip: '快捷键帮助',
+                    onPressed: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (ctx) {
+                          return AlertDialog(
+                            title: const Text('快捷键帮助'),
+                            content: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: EditorEnhancements.keyboardShortcuts.entries
+                                    .map((entry) => ListTile(
+                                          dense: true,
+                                          title: Text(entry.key),
+                                          trailing: Text(entry.value),
+                                        ))
+                                    .toList(),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(),
+                                child: const Text('关闭'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                    icon: const Icon(Icons.keyboard),
+                  ),
+                ),
+
                 IconButton(
                   tooltip: 'Quick Preview 支持的组件',
                   onPressed: () => showDialog<void>(
