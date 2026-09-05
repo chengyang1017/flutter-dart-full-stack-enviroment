@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/responsive_framework.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../project_import/services/flutter_project_zip_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
@@ -617,10 +618,11 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
   Widget build(BuildContext context) => Scaffold(
         resizeToAvoidBottomInset: true,
         body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isCompact = constraints.maxWidth < 700;
-              if (isCompact) {
+          child: ResponsiveBuilder(
+            builder: (context, deviceType, constraints) {
+              // 手机和小平板使用垂直标签布局
+              if (deviceType == DeviceType.phone ||
+                  deviceType == DeviceType.tablet) {
                 return DefaultTabController(
                   length: 4,
                   child: Builder(
@@ -645,6 +647,8 @@ class _PlaygroundScreenState extends State<PlaygroundScreen> {
                   ),
                 );
               }
+
+              // 桌面和超宽屏使用侧边栏布局
               return WidePlaygroundLayout(
                 controller: controller,
                 runner: runner,

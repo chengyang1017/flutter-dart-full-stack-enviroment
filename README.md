@@ -8,6 +8,26 @@ This project started as a UI playground, but has grown into a broader developer-
 
 ---
 
+## 🚀 Quick Start (Docker Compose)
+
+```bash
+# Clone the project
+git clone https://github.com/chengyang1017/flutter-dart-fullstack-enviroment.git
+cd flutter-dart-fullstack-enviroment
+
+# Start all services
+docker-compose up -d
+
+# Open in browser
+# → http://localhost:8080
+```
+
+✨ **That's it!** No configuration needed. The full Flutter environment is running.
+
+📚 [See Full Deployment Guide](DEPLOYMENT.md) for advanced setup, production deployment, and troubleshooting.
+
+---
+
 ## Screenshots
 
 > Screenshot placeholders are intentionally kept here. Add the images under `docs/screenshots/` when they are ready.
@@ -343,32 +363,32 @@ The goal is to move from memorizing isolated code toward understanding **archite
 
 ## Getting Started
 
-### Flutter application
+### Option 1: Docker Compose (Recommended - Easiest)
+
+```bash
+# Clone and start
+git clone https://github.com/chengyang1017/flutter-dart-fullstack-enviroment.git
+cd flutter-dart-fullstack-enviroment
+docker-compose up -d
+
+# Open browser → http://localhost:8080
+```
+
+### Option 2: Local Flutter Development
 
 ```bash
 git clone https://github.com/chengyang1017/flutter-dart-fullstack-enviroment.git
 cd flutter-dart-fullstack-enviroment
 flutter pub get
 flutter run
+
+# Or with web target
+flutter run -d chrome --dart-define=RUNNER_API_URL=http://127.0.0.1:8787
 ```
 
-Analyze the project:
+### Option 3: Manual Runner Setup
 
-```bash
-flutter analyze
-```
-
-Run tests:
-
-```bash
-flutter test
-```
-
----
-
-## Running with the Real Flutter Runner
-
-From the runner directory:
+Start the practice runner:
 
 ```bash
 cd flutter-runner-server
@@ -376,18 +396,59 @@ dart pub get
 dart run bin/server.dart
 ```
 
-Then run the Flutter web client with the runner URL:
+Then in another terminal, start the Flutter app:
 
 ```bash
+flutter pub get
 flutter run -d chrome --dart-define=RUNNER_API_URL=http://127.0.0.1:8787
 ```
 
-Without `RUNNER_API_URL`, the client can fall back to a mock runner implementation for UI development.
+### Project Analysis
 
-For Docker-backed execution, see:
+```bash
+flutter analyze
+```
 
-```text
-flutter-runner-server/README.md
+### Run Tests
+
+```bash
+flutter test
+```
+
+---
+
+## Deployment & Advanced Setup
+
+For production deployment, Docker configuration, environment setup, troubleshooting, and more:
+
+📖 **[See Complete Deployment Guide →](DEPLOYMENT.md)**
+
+Includes:
+- Docker Compose setup (recommended)
+- Single container deployment
+- Nginx reverse proxy configuration
+- Production best practices
+- Troubleshooting tips
+
+---
+
+## Docker Quick Reference
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose stop
+
+# Remove services and containers
+docker-compose down
+
+# Diagnose issues
+./diagnose.sh
 ```
 
 ---

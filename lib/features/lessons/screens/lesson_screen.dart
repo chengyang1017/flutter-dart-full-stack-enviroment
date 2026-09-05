@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/responsive_framework.dart';
 import '../controller/lesson_controller.dart';
 import '../data/author_answer_repository.dart';
 import '../data/lesson_progress_store.dart';
