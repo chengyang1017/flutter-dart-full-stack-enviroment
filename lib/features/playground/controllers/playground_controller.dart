@@ -57,6 +57,10 @@ class PlaygroundController extends ChangeNotifier {
     editorScrollController.verticalScroller.addListener(_handleEditorScroll);
     editorScrollController.horizontalScroller.addListener(_handleEditorScroll);
     workspace.addListener(_handleWorkspaceChanged);
+
+    // Initialize undo/redo history anchor.
+    _recordInitialText();
+
     runCode();
   }
 
@@ -211,15 +215,33 @@ Container(
   /// The editor uses a line-based selection model (CodeLineSelection). This
   /// helper inserts `snippet` into the active line at the current offset and
   /// restores the cursor after the inserted text.
+  // Simple undo/redo history stacks. These keep full-text snapshots which is
+  // sufficient for an editor with moderate file sizes in this environment.
+  final List<String> _undoStack = [];
+  final List<String> _redoStack = [];
+  bool _isPerformingUndoRedo = false;
+  String _lastRecordedText = '';
+
+  void _recordInitialText() {
+    _lastRecordedText = textController.text;
+  }
+
   void insertSnippet(String snippet) {
     final sel = textController.selection;
 
     final normalized = textController.text.replaceAll('\r\n', '\n');
     final lines = normalized.split('\n');
 
+    if (!_isPerformingUndoRedo) {
+      // record previous state for undo
+      _undoStack.add(_lastRecordedText);
+      _redoStack.clear();
+    }
+
     if (sel == null) {
       // No selection info — append to end.
       textController.text = normalized + snippet;
+      _lastRecordedText = textController.text;
       updateCode();
       return;
     }
@@ -242,6 +264,58 @@ Container(
       offset: newOffset,
     );
 
+    _lastRecordedText = textController.text;
+    updateCode();
+  }
+
+  /// Undo the last editor change.
+  void undo() {
+    if (_undoStack.isEmpty) return;
+
+    _isPerformingUndoRedo = true;
+    try {
+      _redoStack.add(textController.text);
+      final previous = _undoStack.removeLast();
+      textController.text = previous;
+      textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
+      _lastRecordedText = previous;
+      updateCode();
+    } finally {
+      _isPerformingUndoRedo = false;
+    }
+  }
+
+  /// Redo the last undone change.
+  void redo() {
+    if (_redoStack.isEmpty) return;
+
+    _isPerformingUndoRedo = true;
+    try {
+      _undoStack.add(textController.text);
+      final next = _redoStack.removeLast();
+      textController.text = next;
+      textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
+      _lastRecordedText = next;
+      updateCode();
+    } finally {
+      _isPerformingUndoRedo = false;
+    }
+  }
+
+  /// Minimal formatter: trims trailing whitespace and ensures single final newline.
+  void formatCode() {
+    final current = textController.text.replaceAll('\r\n', '\n');
+    final lines = current.split('\n');
+    final trimmed = lines.map((l) => l.replaceAll(RegExp(r'\s+\$'), '')).join('\n');
+    final result = trimmed.endsWith('\n') ? trimmed : trimmed + '\n';
+
+    if (!_isPerformingUndoRedo) {
+      _undoStack.add(_lastRecordedText);
+      _redoStack.clear();
+    }
+
+    textController.text = result;
+    _lastRecordedText = result;
     updateCode();
   }
 
