@@ -4,13 +4,10 @@ import '../../export/services/workspace_export_download.dart';
 import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
-import '../../export/widgets/export_project_guide_dialog.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
 import '../../runner/widgets/dart_frog_api_lab_dialog.dart';
 import '../../workspace/services/dart_frog_workspace_service.dart';
-import '../../workspace/services/serverpod_workspace_service.dart';
 import '../controllers/playground_controller.dart';
-import '../../core/editor_enhancements.dart';
 import 'supported_widgets_dialog.dart';
 
 class PlaygroundToolbar extends StatelessWidget {
@@ -32,13 +29,12 @@ class PlaygroundToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final density = compact ? VisualDensity.compact : VisualDensity.standard;
-    final canExport = supportsWorkspaceExportDownload;
+    final canExport = controller.workspace.isDirty &&
+        supportsWorkspaceExportDownload;
     const dartFrog = DartFrogWorkspaceService();
-    const serverpod = ServerpodWorkspaceService();
     final dartFrogEnabled = dartFrog.isEnabled(controller.workspace);
-    final serverpodEnabled = serverpod.isEnabled(controller.workspace);
     final backendUrl = runner.session?.backendUrl;
-    final apiLabUrl = dartFrogEnabled && runner.canHotReload ? backendUrl : null;
+    final canOpenApiLab = backendUrl != null && runner.canHotReload;
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -62,11 +58,12 @@ class PlaygroundToolbar extends StatelessWidget {
                   key: const ValueKey('dart-frog-workspace-button'),
                   style: OutlinedButton.styleFrom(visualDensity: density),
                   onPressed: runner.canRun
-                      ? () => _enableDartFrog(
-                            context,
-                            dartFrog,
-                            serverpodEnabled: serverpodEnabled,
-                          )
+                      ? () {
+                          dartFrog.ensureEnabled(controller.workspace);
+                          controller.selectWorkspaceFile(
+                            DartFrogWorkspaceService.backendRoutePath,
+                          );
+                        }
                       : null,
                   icon: const Icon(Icons.api),
                   label: Text(
@@ -75,30 +72,14 @@ class PlaygroundToolbar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  key: const ValueKey('serverpod-workspace-button'),
-                  style: OutlinedButton.styleFrom(visualDensity: density),
-                  onPressed: runner.canRun
-                      ? () => _enableServerpod(
-                            context,
-                            serverpod,
-                            dartFrogEnabled: dartFrogEnabled,
-                          )
-                      : null,
-                  icon: const Icon(Icons.hub_outlined),
-                  label: Text(
-                    serverpodEnabled ? 'Serverpod' : '+ Serverpod',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
                   key: const ValueKey('dart-frog-api-lab-button'),
                   style: OutlinedButton.styleFrom(visualDensity: density),
-                  onPressed: apiLabUrl != null
+                  onPressed: canOpenApiLab
                       ? () {
                           showDialog<void>(
                             context: context,
                             builder: (_) => DartFrogApiLabDialog(
-                              baseUrl: apiLabUrl,
+                              baseUrl: backendUrl!,
                             ),
                           );
                         }
@@ -134,51 +115,6 @@ class PlaygroundToolbar extends StatelessWidget {
                   icon: const Icon(Icons.stop),
                   label: const Text('Stop'),
                 ),
-                const SizedBox(width: 8),
-
-                // Undo / Redo buttons with keyboard hints and improved UX
-                Tooltip(
-                  message: controller.canUndo ? '撤销 (Ctrl/Cmd+Z)' : '无可撤销的操作',
-                  waitDuration: const Duration(milliseconds: 400),
-                  child: IconButton(
-                    onPressed: controller.canUndo ? controller.undo : null,
-                    icon: Icon(
-                      Icons.undo,
-                      color: controller.canUndo
-                          ? null
-                          : Theme.of(context).disabledColor,
-                    ),
-                  ),
-                ),
-                Tooltip(
-                  message: controller.canRedo ? '重做 (Ctrl+Y / Cmd+Shift+Z)' : '无可重做的操作',
-                  waitDuration: const Duration(milliseconds: 400),
-                  child: IconButton(
-                    onPressed: controller.canRedo ? controller.redo : null,
-                    icon: Icon(
-                      Icons.redo,
-                      color: controller.canRedo
-                          ? null
-                          : Theme.of(context).disabledColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                Tooltip(
-                  message: '格式化 (Ctrl/Cmd+Shift+F)',
-                  waitDuration: const Duration(milliseconds: 400),
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: density,
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      disabledForegroundColor: Theme.of(context).disabledColor,
-                    ),
-                    onPressed: controller.formatCode,
-                    icon: const Icon(Icons.format_align_left),
-                    label: const Text('格式化'),
-                  ),
-                ),
                 const SizedBox(width: 12),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(visualDensity: density),
@@ -190,13 +126,12 @@ class PlaygroundToolbar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  key: const ValueKey('export-project-button'),
                   style: OutlinedButton.styleFrom(visualDensity: density),
                   onPressed: canExport
                       ? () => _exportWorkspace(context)
                       : null,
                   icon: const Icon(Icons.download_outlined),
-                  label: const Text('导出项目'),
+                  label: const Text('导出修改'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -250,128 +185,6 @@ class PlaygroundToolbar extends StatelessWidget {
                     ),
                   ],
                 ),
-                // 快捷键帮助（? 弹窗）
-                Tooltip(
-                  message: '快捷键帮助',
-                  waitDuration: const Duration(milliseconds: 400),
-                  child: IconButton(
-                    tooltip: '快捷键帮助',
-                    onPressed: () {
-                      showDialog<void>(
-                        context: context,
-                        builder: (ctx) {
-                          return AlertDialog(
-                            title: const Text('快捷键帮助'),
-                            content: SingleChildScrollView(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: () {
-                                  // Localized labels and grouping for shortcuts
-                                  final Map<String, String> labels = {
-                                    'format': '格式化',
-                                    'undo': '撤销',
-                                    'redo': '重做',
-                                    'comment': '注释/取消注释',
-                                    'duplicate_line': '复制行',
-                                    'delete_line': '删除行',
-                                    'move_line_up': '上移行',
-                                    'move_line_down': '下移行',
-                                    'find': '查找',
-                                    'replace': '替换',
-                                    'find_next': '查找下一个',
-                                    'go_to_line': '跳到行',
-                                    'go_to_definition': '转到定义',
-                                    'go_back': '后退',
-                                    'go_forward': '前进',
-                                    'autocomplete': '自动补全',
-                                    'snippet_next': '片段: 下一个',
-                                    'snippet_previous': '片段: 上一个',
-                                    'save': '保存',
-                                    'save_all': '全部保存',
-                                  };
-
-                                  final Map<String, List<String>> groups = {
-                                    '编辑': [
-                                      'format',
-                                      'undo',
-                                      'redo',
-                                      'comment',
-                                      'duplicate_line',
-                                      'delete_line',
-                                      'move_line_up',
-                                      'move_line_down',
-                                      'save',
-                                      'save_all',
-                                    ],
-                                    '导航 / 搜索': [
-                                      'find',
-                                      'replace',
-                                      'find_next',
-                                      'go_to_line',
-                                      'go_to_definition',
-                                      'go_back',
-                                      'go_forward',
-                                    ],
-                                    '片段与补全': [
-                                      'autocomplete',
-                                      'snippet_next',
-                                      'snippet_previous',
-                                    ],
-                                    '其他': EditorEnhancements.keyboardShortcuts.keys
-                                        .where((k) => !labels.keys.contains(k))
-                                        .toList(),
-                                  };
-
-                                  final List<Widget> widgets = [];
-
-                                  for (final group in groups.entries) {
-                                    final visible = group.value
-                                        .where((k) => EditorEnhancements.keyboardShortcuts.containsKey(k))
-                                        .toList();
-                                    if (visible.isEmpty) continue;
-
-                                    widgets.add(Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                                      child: Text(
-                                        group.key,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ));
-
-                                    for (final key in visible) {
-                                      final label = labels[key] ?? key;
-                                      final combo = EditorEnhancements.keyboardShortcuts[key] ?? '';
-                                      widgets.add(ListTile(
-                                        dense: true,
-                                        title: Text(label),
-                                        trailing: Text(combo),
-                                      ));
-                                    }
-
-                                    widgets.add(const Divider());
-                                  }
-
-                                  return widgets;
-                                }(),
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('关闭'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    },
-                    icon: const Icon(Icons.keyboard),
-                  ),
-                ),
-
                 IconButton(
                   tooltip: 'Quick Preview 支持的组件',
                   onPressed: () => showDialog<void>(
@@ -385,70 +198,6 @@ class PlaygroundToolbar extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  void _enableDartFrog(
-    BuildContext context,
-    DartFrogWorkspaceService service, {
-    required bool serverpodEnabled,
-  }) {
-    if (serverpodEnabled) {
-      _showFrameworkConflict(
-        context,
-        current: 'Serverpod',
-        requested: 'Dart Frog',
-      );
-      return;
-    }
-    try {
-      service.ensureEnabled(controller.workspace);
-      controller.selectWorkspaceFile(DartFrogWorkspaceService.backendRoutePath);
-    } catch (error) {
-      _showFrameworkError(context, error);
-    }
-  }
-
-  void _enableServerpod(
-    BuildContext context,
-    ServerpodWorkspaceService service, {
-    required bool dartFrogEnabled,
-  }) {
-    if (dartFrogEnabled) {
-      _showFrameworkConflict(
-        context,
-        current: 'Dart Frog',
-        requested: 'Serverpod',
-      );
-      return;
-    }
-    try {
-      service.ensureEnabled(controller.workspace);
-      controller.selectWorkspaceFile(
-        ServerpodWorkspaceService.greetingEndpointPath,
-      );
-    } catch (error) {
-      _showFrameworkError(context, error);
-    }
-  }
-
-  void _showFrameworkConflict(
-    BuildContext context, {
-    required String current,
-    required String requested,
-  }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '当前 Workspace 已启用 $current。请新建或重置练习后再启用 $requested。',
-        ),
-      ),
-    );
-  }
-
-  void _showFrameworkError(BuildContext context, Object error) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('全栈环境创建失败：$error')),
     );
   }
 
@@ -507,22 +256,16 @@ class PlaygroundToolbar extends StatelessWidget {
       final bundle = const WorkspaceExportService().build(
         controller.workspace,
       );
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (_) => ExportProjectGuideDialog(
-          fileName: bundle.fileName,
-          projectType: bundle.manifest.projectType,
-        ),
+      await downloadWorkspaceExport(
+        bundle.bytes,
+        bundle.fileName,
       );
-      if (confirmed != true || !context.mounted) return;
-
-      await downloadWorkspaceExport(bundle.bytes, bundle.fileName);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '已下载练习包：${bundle.fileName}。它保存的是源码和项目配方，不是完整 Flutter 工程。',
+            '已导出 ${bundle.manifest.changes.length} 个修改：${bundle.fileName}',
           ),
         ),
       );

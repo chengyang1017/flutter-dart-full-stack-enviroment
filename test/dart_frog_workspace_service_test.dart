@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_ui_playground/features/export/services/workspace_export_service.dart';
-import 'package:flutter_ui_playground/features/export/services/workspace_import_service.dart';
 import 'package:flutter_ui_playground/features/workspace/controllers/workspace_controller.dart';
 import 'package:flutter_ui_playground/features/workspace/services/dart_frog_workspace_service.dart';
 
@@ -117,35 +115,6 @@ dependencies:
     expect(
       workspace.entryAt(DartFrogWorkspaceService.backendPubspecPath)!.content,
       contains('shelf_cors_headers: ^0.1.5'),
-    );
-  });
-
-  test('portable Dart Frog export can be imported again', () {
-    final source = createWorkspace();
-    final target = createWorkspace();
-    addTearDown(source.dispose);
-    addTearDown(target.dispose);
-    service.ensureEnabled(source);
-
-    final bundle = const WorkspaceExportService().build(
-      source,
-      exportedAt: DateTime.utc(2026, 9, 2),
-    );
-
-    expect(bundle.manifest.projectType, 'flutter-dart-frog');
-    expect(bundle.manifest.template, 'flutter-playground');
-
-    final imported = const WorkspaceImportService().apply(bundle.bytes, target);
-
-    expect(imported.projectType, 'flutter-dart-frog');
-    expect(service.isEnabled(target), isTrue);
-    expect(
-      target.entryAt(DartFrogWorkspaceService.backendRoutePath)?.content,
-      contains('Response.json'),
-    );
-    expect(
-      target.entryAt(DartFrogWorkspaceService.apiClientPath)?.content,
-      contains("String.fromEnvironment('API_URL')"),
     );
   });
 }
