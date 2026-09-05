@@ -6,28 +6,21 @@ import '../../workspace/controllers/workspace_controller.dart';
 import '../models/run_session.dart';
 import '../models/runner_event.dart';
 import '../models/runner_preview_target.dart';
-import '../models/workspace_runner_source.dart';
 import '../services/flutter_runner_client.dart';
-import '../services/workspace_runner_source_provider.dart';
 
 class FlutterRunnerController extends ChangeNotifier {
   FlutterRunnerController({
     required this.workspace,
     required this.client,
-    WorkspaceRunnerSourceProvider? sourceProvider,
-  }) : sourceProvider =
-            sourceProvider ?? LocalWorkspaceRunnerSourceProvider(workspace);
+  });
 
   final WorkspaceController workspace;
   final FlutterRunnerClient client;
-  final WorkspaceRunnerSourceProvider sourceProvider;
 
   RunSession? session;
   RunnerStatus status = RunnerStatus.idle;
   RunnerPreviewTarget previewTarget = RunnerPreviewTarget.phone;
-  RunnerPreviewOrientation previewOrientation = RunnerPreviewOrientation.portrait;
   final List<String> logs = [];
-  String? lastSyncedSourceRevision;
 
   StreamSubscription<RunnerEvent>? _eventsSubscription;
   bool _disposed = false;
@@ -56,15 +49,6 @@ class FlutterRunnerController extends ChangeNotifier {
   void selectPreviewTarget(RunnerPreviewTarget target) {
     if (previewTarget == target) return;
     previewTarget = target;
-    previewOrientation = RunnerPreviewOrientation.portrait;
-    notifyListeners();
-  }
-
-  void selectPreviewOrientation(RunnerPreviewOrientation orientation) {
-    if (!previewTarget.supportsOrientation || previewOrientation == orientation) {
-      return;
-    }
-    previewOrientation = orientation;
     notifyListeners();
   }
 
@@ -72,11 +56,13 @@ class FlutterRunnerController extends ChangeNotifier {
     if (!canRun) return;
 
     try {
+      final currentSession = await _ensureSession();
       _setStatus(RunnerStatus.syncing);
-      final source = await sourceProvider.prepare();
-      final currentSession = await _ensureSession(source);
-      _setStatus(RunnerStatus.syncing);
-      await _syncSource(currentSession.id, source);
+      await client.syncWorkspace(
+        sessionId: currentSession.id,
+        files: _workspaceFiles(),
+        changes: workspace.changes,
+      );
       _setStatus(RunnerStatus.starting);
       await client.run(currentSession.id);
     } catch (error) {
@@ -89,8 +75,11 @@ class FlutterRunnerController extends ChangeNotifier {
 
     try {
       _setStatus(RunnerStatus.syncing);
-      final source = await sourceProvider.prepare();
-      await _syncSource(session!.id, source);
+      await client.syncWorkspace(
+        sessionId: session!.id,
+        files: _workspaceFiles(),
+        changes: workspace.changes,
+      );
       _setStatus(RunnerStatus.reloading);
       await client.hotReload(session!.id);
     } catch (error) {
@@ -103,8 +92,11 @@ class FlutterRunnerController extends ChangeNotifier {
 
     try {
       _setStatus(RunnerStatus.syncing);
-      final source = await sourceProvider.prepare();
-      await _syncSource(session!.id, source);
+      await client.syncWorkspace(
+        sessionId: session!.id,
+        files: _workspaceFiles(),
+        changes: workspace.changes,
+      );
       _setStatus(RunnerStatus.restarting);
       await client.hotRestart(session!.id);
     } catch (error) {
@@ -129,7 +121,7 @@ class FlutterRunnerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<RunSession> _ensureSession(WorkspaceRunnerSource source) async {
+  Future<RunSession> _ensureSession() async {
     final current = session;
     if (current != null) return current;
 
@@ -137,8 +129,7 @@ class FlutterRunnerController extends ChangeNotifier {
     _appendLog('Creating ${client.displayName} session...');
 
     final created = await client.createSession(
-      files: source.files,
-      firebaseCapabilities: source.firebaseCapabilities,
+      files: _workspaceFiles(),
     );
     session = created;
     _setStatus(created.status);
@@ -154,21 +145,11 @@ class FlutterRunnerController extends ChangeNotifier {
     return created;
   }
 
-  Future<void> _syncSource(
-    String sessionId,
-    WorkspaceRunnerSource source,
-  ) async {
-    await client.syncWorkspace(
-      sessionId: sessionId,
-      files: source.files,
-      changes: source.changes,
-      firebaseCapabilities: source.firebaseCapabilities,
-    );
-    lastSyncedSourceRevision = source.remoteRevision;
-    final revision = source.remoteRevision;
-    if (revision != null) {
-      _appendLog('Synced persisted Workspace revision $revision to Runner.');
-    }
+  Map<String, String> _workspaceFiles() {
+    return {
+      for (final entry in workspace.entries)
+        if (entry.isFile) entry.path: entry.content,
+    };
   }
 
   void _handleEvent(RunnerEvent event) {
