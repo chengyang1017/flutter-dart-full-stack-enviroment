@@ -5,7 +5,9 @@ import '../../export/services/workspace_export_service.dart';
 import '../../export/services/workspace_import_picker.dart';
 import '../../export/services/workspace_import_service.dart';
 import '../../runner/controllers/flutter_runner_controller.dart';
+import '../../runner/widgets/dart_frog_api_lab_dialog.dart';
 import '../../workspace/services/dart_frog_workspace_service.dart';
+import '../../workspace/services/serverpod_workspace_service.dart';
 import '../controllers/playground_controller.dart';
 import 'supported_widgets_dialog.dart';
 
@@ -28,10 +30,14 @@ class PlaygroundToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final density = compact ? VisualDensity.compact : VisualDensity.standard;
-    final canExport = controller.workspace.isDirty &&
-        supportsWorkspaceExportDownload;
+    final canExport =
+        controller.workspace.isDirty && supportsWorkspaceExportDownload;
     const dartFrog = DartFrogWorkspaceService();
+    const serverpod = ServerpodWorkspaceService();
     final dartFrogEnabled = dartFrog.isEnabled(controller.workspace);
+    final serverpodEnabled = serverpod.isEnabled(controller.workspace);
+    final backendUrl = runner.session?.backendUrl;
+    final apiLabUrl = dartFrogEnabled && runner.canHotReload ? backendUrl : null;
 
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -55,17 +61,49 @@ class PlaygroundToolbar extends StatelessWidget {
                   key: const ValueKey('dart-frog-workspace-button'),
                   style: OutlinedButton.styleFrom(visualDensity: density),
                   onPressed: runner.canRun
-                      ? () {
-                          dartFrog.ensureEnabled(controller.workspace);
-                          controller.selectWorkspaceFile(
-                            DartFrogWorkspaceService.backendRoutePath,
-                          );
-                        }
+                      ? () => _enableDartFrog(
+                            context,
+                            dartFrog,
+                            serverpodEnabled: serverpodEnabled,
+                          )
                       : null,
                   icon: const Icon(Icons.api),
                   label: Text(
                     dartFrogEnabled ? 'Dart Frog' : '+ Dart Frog',
                   ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('serverpod-workspace-button'),
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: runner.canRun
+                      ? () => _enableServerpod(
+                            context,
+                            serverpod,
+                            dartFrogEnabled: dartFrogEnabled,
+                          )
+                      : null,
+                  icon: const Icon(Icons.hub_outlined),
+                  label: Text(
+                    serverpodEnabled ? 'Serverpod' : '+ Serverpod',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('dart-frog-api-lab-button'),
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: apiLabUrl != null
+                      ? () {
+                          showDialog<void>(
+                            context: context,
+                            builder: (_) => DartFrogApiLabDialog(
+                              baseUrl: apiLabUrl,
+                            ),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.http),
+                  label: const Text('API 调试'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -181,6 +219,70 @@ class PlaygroundToolbar extends StatelessWidget {
     );
   }
 
+  void _enableDartFrog(
+    BuildContext context,
+    DartFrogWorkspaceService service, {
+    required bool serverpodEnabled,
+  }) {
+    if (serverpodEnabled) {
+      _showFrameworkConflict(
+        context,
+        current: 'Serverpod',
+        requested: 'Dart Frog',
+      );
+      return;
+    }
+    try {
+      service.ensureEnabled(controller.workspace);
+      controller.selectWorkspaceFile(DartFrogWorkspaceService.backendRoutePath);
+    } catch (error) {
+      _showFrameworkError(context, error);
+    }
+  }
+
+  void _enableServerpod(
+    BuildContext context,
+    ServerpodWorkspaceService service, {
+    required bool dartFrogEnabled,
+  }) {
+    if (dartFrogEnabled) {
+      _showFrameworkConflict(
+        context,
+        current: 'Dart Frog',
+        requested: 'Serverpod',
+      );
+      return;
+    }
+    try {
+      service.ensureEnabled(controller.workspace);
+      controller.selectWorkspaceFile(
+        ServerpodWorkspaceService.greetingEndpointPath,
+      );
+    } catch (error) {
+      _showFrameworkError(context, error);
+    }
+  }
+
+  void _showFrameworkConflict(
+    BuildContext context, {
+    required String current,
+    required String requested,
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '当前 Workspace 已启用 $current。请新建或重置练习后再启用 $requested。',
+        ),
+      ),
+    );
+  }
+
+  void _showFrameworkError(BuildContext context, Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('全栈环境创建失败：$error')),
+    );
+  }
+
   Future<void> _importWorkspace(BuildContext context) async {
     if (controller.workspace.isDirty) {
       final confirmed = await showDialog<bool>(
@@ -236,10 +338,7 @@ class PlaygroundToolbar extends StatelessWidget {
       final bundle = const WorkspaceExportService().build(
         controller.workspace,
       );
-      await downloadWorkspaceExport(
-        bundle.bytes,
-        bundle.fileName,
-      );
+      await downloadWorkspaceExport(bundle.bytes, bundle.fileName);
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

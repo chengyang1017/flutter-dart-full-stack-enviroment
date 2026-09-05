@@ -24,14 +24,36 @@ abstract interface class RunnerExecutionBackend {
     List<String> arguments,
   );
 
+  Future<int> runDartCommand(
+    RunnerSession session,
+    List<String> arguments, {
+    String workingDirectory = 'backend',
+  });
+
+  Future<int> runServerpodCommand(
+    RunnerSession session,
+    List<String> arguments, {
+    String workingDirectory = 'serverpod/practice_server',
+  });
+
   Future<void> syncWorkspace(
     RunnerSession session, {
     required Set<String> removedPaths,
   });
 
   Future<RunnerProcessLaunch> startFlutterWeb(
+    RunnerSession session, {
+    Map<String, String> dartDefines = const <String, String>{},
+  });
+
+  Future<RunnerProcessLaunch> startDartFrog(
     RunnerSession session,
   );
+
+  Future<RunnerProcessLaunch> startServerpod(
+    RunnerSession session, {
+    String workingDirectory = 'serverpod/practice_server',
+  });
 
   Future<void> forceStop(
     RunnerSession session,
