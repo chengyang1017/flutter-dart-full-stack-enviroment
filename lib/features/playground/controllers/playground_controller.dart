@@ -222,6 +222,10 @@ Container(
   bool _isPerformingUndoRedo = false;
   String _lastRecordedText = '';
 
+  /// Whether undo/redo actions are available.
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
   void _recordInitialText() {
     _lastRecordedText = textController.text;
   }
@@ -280,6 +284,8 @@ Container(
       textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
       _lastRecordedText = previous;
       updateCode();
+      // Update UI consumers immediately
+      notifyListeners();
     } finally {
       _isPerformingUndoRedo = false;
     }
@@ -297,6 +303,8 @@ Container(
       textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
       _lastRecordedText = next;
       updateCode();
+      // Update UI consumers immediately
+      notifyListeners();
     } finally {
       _isPerformingUndoRedo = false;
     }
@@ -317,6 +325,8 @@ Container(
     textController.text = result;
     _lastRecordedText = result;
     updateCode();
+    // Notify UI of change immediately
+    notifyListeners();
   }
 
   void runCode() {

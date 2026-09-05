@@ -133,6 +133,25 @@ class PlaygroundToolbar extends StatelessWidget {
                   icon: const Icon(Icons.stop),
                   label: const Text('Stop'),
                 ),
+                const SizedBox(width: 8),
+                // Undo / Redo buttons with keyboard hints
+                IconButton(
+                  tooltip: '撤销 (Ctrl/Cmd+Z)',
+                  onPressed: controller.canUndo ? controller.undo : null,
+                  icon: const Icon(Icons.undo),
+                ),
+                IconButton(
+                  tooltip: '重做 (Ctrl+Y / Cmd+Shift+Z)',
+                  onPressed: controller.canRedo ? controller.redo : null,
+                  icon: const Icon(Icons.redo),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(visualDensity: density),
+                  onPressed: controller.formatCode,
+                  icon: const Icon(Icons.format_align_left),
+                  label: const Text('格式化'),
+                ),
                 const SizedBox(width: 12),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(visualDensity: density),
