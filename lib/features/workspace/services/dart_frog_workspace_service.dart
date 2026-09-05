@@ -5,9 +5,6 @@ class DartFrogWorkspaceService {
 
   static const backendPubspecPath = 'backend/pubspec.yaml';
   static const backendRoutePath = 'backend/routes/index.dart';
-  static const backendMiddlewarePath = 'backend/routes/_middleware.dart';
-  static const backendStatusRoutePath = 'backend/routes/api/status.dart';
-  static const backendEchoRoutePath = 'backend/routes/api/echo.dart';
   static const apiClientPath = 'lib/dart_frog_api.dart';
 
   bool isEnabled(WorkspaceController workspace) {
@@ -21,7 +18,6 @@ class DartFrogWorkspaceService {
 
     _ensureDirectory(workspace, 'backend');
     _ensureDirectory(workspace, 'backend/routes');
-    _ensureDirectory(workspace, 'backend/routes/api');
     _ensureDirectory(workspace, 'backend/lib');
     _ensureDirectory(workspace, 'backend/test');
 
@@ -30,26 +26,10 @@ class DartFrogWorkspaceService {
       backendPubspecPath,
       _backendPubspec,
     );
-    _ensureBackendDependencies(workspace);
     _ensureFile(
       workspace,
       backendRoutePath,
       _backendRoute,
-    );
-    _ensureFile(
-      workspace,
-      backendMiddlewarePath,
-      _backendMiddleware,
-    );
-    _ensureFile(
-      workspace,
-      backendStatusRoutePath,
-      _backendStatusRoute,
-    );
-    _ensureFile(
-      workspace,
-      backendEchoRoutePath,
-      _backendEchoRoute,
     );
     _ensureFile(
       workspace,
@@ -101,58 +81,26 @@ class DartFrogWorkspaceService {
   }
 
   void _ensureHttpDependency(WorkspaceController workspace) {
-    _ensureDependency(
-      workspace,
-      path: 'pubspec.yaml',
-      packageName: 'http',
-      constraint: '^1.6.0',
-    );
-  }
-
-  void _ensureBackendDependencies(WorkspaceController workspace) {
-    _ensureDependency(
-      workspace,
-      path: backendPubspecPath,
-      packageName: 'dart_frog',
-      constraint: '^1.2.6',
-    );
-    _ensureDependency(
-      workspace,
-      path: backendPubspecPath,
-      packageName: 'shelf_cors_headers',
-      constraint: '^0.1.5',
-    );
-  }
-
-  void _ensureDependency(
-    WorkspaceController workspace, {
-    required String path,
-    required String packageName,
-    required String constraint,
-  }) {
-    final entry = workspace.entryAt(path);
+    final entry = workspace.entryAt('pubspec.yaml');
     if (entry == null || !entry.isFile) {
-      throw StateError('$path is missing.');
+      throw StateError('Flutter pubspec.yaml is missing.');
     }
 
     final source = entry.content;
-    if (RegExp(
-      '^\\s{2}${RegExp.escape(packageName)}\\s*:',
-      multiLine: true,
-    ).hasMatch(source)) {
+    if (RegExp(r'^\s{2}http\s*:', multiLine: true).hasMatch(source)) {
       return;
     }
 
     const dependencies = 'dependencies:\n';
     if (!source.contains(dependencies)) {
-      throw StateError('$path has no dependencies section.');
+      throw StateError('pubspec.yaml has no dependencies section.');
     }
 
     workspace.updateFileContent(
-      path,
+      'pubspec.yaml',
       source.replaceFirst(
         dependencies,
-        '$dependencies  $packageName: $constraint\n',
+        '${dependencies}  http: ^1.6.0\n',
       ),
     );
   }
@@ -172,7 +120,6 @@ environment:
 
 dependencies:
   dart_frog: ^1.2.6
-  shelf_cors_headers: ^0.1.5
 ''';
 
   static const _backendRoute = '''import 'package:dart_frog/dart_frog.dart';
@@ -183,65 +130,10 @@ Response onRequest(RequestContext context) {
       'message': 'Hello from Dart Frog!',
       'servedAt': DateTime.now().toUtc().toIso8601String(),
     },
+    headers: const {
+      'access-control-allow-origin': '*',
+    },
   );
-}
-''';
-
-  static const _backendMiddleware = '''import 'package:dart_frog/dart_frog.dart';
-import 'package:shelf_cors_headers/shelf_cors_headers.dart' as shelf;
-
-Handler middleware(Handler handler) {
-  return handler.use(
-    fromShelfMiddleware(
-      shelf.corsHeaders(
-        headers: const {
-          shelf.ACCESS_CONTROL_ALLOW_ORIGIN: '*',
-          shelf.ACCESS_CONTROL_ALLOW_HEADERS: 'Origin, Content-Type, Accept',
-          shelf.ACCESS_CONTROL_ALLOW_METHODS: 'GET, POST, OPTIONS',
-        },
-      ),
-    ),
-  );
-}
-''';
-
-  static const _backendStatusRoute = '''import 'dart:io';
-
-import 'package:dart_frog/dart_frog.dart';
-
-Future<Response> onRequest(RequestContext context) async {
-  switch (context.request.method) {
-    case HttpMethod.get:
-      return Response.json(
-        body: {
-          'status': 'ok',
-          'framework': 'dart_frog',
-          'servedAt': DateTime.now().toUtc().toIso8601String(),
-        },
-      );
-    default:
-      return Response(statusCode: HttpStatus.methodNotAllowed);
-  }
-}
-''';
-
-  static const _backendEchoRoute = '''import 'dart:io';
-
-import 'package:dart_frog/dart_frog.dart';
-
-Future<Response> onRequest(RequestContext context) async {
-  switch (context.request.method) {
-    case HttpMethod.post:
-      final body = await context.request.json();
-      return Response.json(
-        body: {
-          'received': body,
-          'servedAt': DateTime.now().toUtc().toIso8601String(),
-        },
-      );
-    default:
-      return Response(statusCode: HttpStatus.methodNotAllowed);
-  }
 }
 ''';
 

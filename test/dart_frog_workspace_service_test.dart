@@ -15,7 +15,7 @@ const englishName = 'Glyphora';
     );
   }
 
-  test('Dart Frog service adds backend, API routes and Flutter client', () {
+  test('Dart Frog service adds a runnable backend and Flutter API client', () {
     final workspace = createWorkspace();
     addTearDown(workspace.dispose);
 
@@ -26,26 +26,11 @@ const englishName = 'Glyphora';
     expect(service.isEnabled(workspace), isTrue);
     expect(
       workspace.entryAt(DartFrogWorkspaceService.backendPubspecPath)!.content,
-      allOf(
-        contains('dart_frog: ^1.2.6'),
-        contains('shelf_cors_headers: ^0.1.5'),
-      ),
+      contains('dart_frog: ^1.2.6'),
     );
     expect(
       workspace.entryAt(DartFrogWorkspaceService.backendRoutePath)!.content,
       contains('Response.json'),
-    );
-    expect(
-      workspace.entryAt(DartFrogWorkspaceService.backendMiddlewarePath)!.content,
-      contains('corsHeaders'),
-    );
-    expect(
-      workspace.entryAt(DartFrogWorkspaceService.backendStatusRoutePath)!.content,
-      contains('HttpMethod.get'),
-    );
-    expect(
-      workspace.entryAt(DartFrogWorkspaceService.backendEchoRoutePath)!.content,
-      contains('HttpMethod.post'),
     );
     expect(
       workspace.entryAt(DartFrogWorkspaceService.apiClientPath)!.content,
@@ -77,44 +62,6 @@ const englishName = 'Glyphora';
           .allMatches(workspace.entryAt('pubspec.yaml')!.content)
           .length,
       1,
-    );
-    expect(
-      RegExp(r'^\s{2}shelf_cors_headers\s*:', multiLine: true)
-          .allMatches(
-            workspace
-                .entryAt(DartFrogWorkspaceService.backendPubspecPath)!
-                .content,
-          )
-          .length,
-      1,
-    );
-  });
-
-  test('existing Dart Frog pubspec is upgraded with API Lab CORS dependency', () {
-    final workspace = createWorkspace();
-    addTearDown(workspace.dispose);
-
-    workspace.createDirectory('', 'backend');
-    workspace.createDirectory('backend', 'routes');
-    workspace.createFile(
-      'backend',
-      'pubspec.yaml',
-      content: '''name: practice_backend
-publish_to: none
-
-environment:
-  sdk: ^3.4.0
-
-dependencies:
-  dart_frog: ^1.2.6
-''',
-    );
-
-    service.ensureEnabled(workspace);
-
-    expect(
-      workspace.entryAt(DartFrogWorkspaceService.backendPubspecPath)!.content,
-      contains('shelf_cors_headers: ^0.1.5'),
     );
   });
 }

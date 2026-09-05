@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../runner_session.dart';
-import 'docker_postgres_sidecar.dart';
 import 'execution_backend.dart';
 
 class DockerExecutionBackend implements RunnerExecutionBackend {
@@ -13,7 +12,6 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     this.flutterExecutable = 'flutter',
     this.dartExecutable = 'dart',
     this.dartFrogExecutable = 'dart_frog',
-    this.serverpodExecutable = 'serverpod',
     this.memoryLimit = '1024m',
     this.cpuLimit = '1.0',
     this.pidsLimit = 256,
@@ -22,16 +20,13 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     this.containerWebPort = 8080,
     this.containerBackendPort = 8081,
     this.containerBackendVmServicePort = 8181,
-    DockerPostgresSidecar? postgresSidecar,
-  }) : postgresSidecar = postgresSidecar ??
-            DockerPostgresSidecar(dockerExecutable: dockerExecutable);
+  });
 
   final String dockerExecutable;
   final String image;
   final String flutterExecutable;
   final String dartExecutable;
   final String dartFrogExecutable;
-  final String serverpodExecutable;
   final String memoryLimit;
   final String cpuLimit;
   final int pidsLimit;
@@ -40,14 +35,15 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
   final int containerWebPort;
   final int containerBackendPort;
   final int containerBackendVmServicePort;
-  final DockerPostgresSidecar postgresSidecar;
 
   @override
   String get name => 'docker';
 
   @override
   Future<void> prepareSession(RunnerSession session) async {
-    if (session.runtimeId != null) return;
+    if (session.runtimeId != null) {
+      return;
+    }
 
     final previewPort = await _reservePort();
     final backendPort = await _reservePort();
@@ -73,6 +69,9 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       '$pidsLimit',
       '--cap-drop',
       'ALL',
+      // docker cp creates files as root. CHOWN is the only capability kept so
+      // the trusted runner server can hand copied files back to the non-root
+      // runtime user. User Flutter/Dart code still runs as that non-root user.
       '--cap-add',
       'CHOWN',
       '--security-opt',
@@ -103,8 +102,13 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     final result = await _runDocker(arguments);
     if (result.exitCode != 0) {
       _logProcessResult(session, result);
-      await _runDocker(['rm', '--force', containerName], logFailure: false);
-      throw StateError('docker run exited with code ${result.exitCode}');
+      await _runDocker(
+        ['rm', '--force', containerName],
+        logFailure: false,
+      );
+      throw StateError(
+        'docker run exited with code ${result.exitCode}',
+      );
     }
 
     session.runtimeId = containerName;
@@ -139,40 +143,19 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     String workingDirectory = 'backend',
   }) async {
     final container = _requireContainer(session);
+    final containerWorkdir = _containerWorkingDirectory(workingDirectory);
     return _runLoggedProcess(
       session,
       [
         'exec',
         '--workdir',
-        _containerWorkingDirectory(workingDirectory),
+        containerWorkdir,
         container,
         dartExecutable,
         ...arguments,
       ],
       logPrefix: '[backend] ',
       stderrPrefix: '[backend stderr] ',
-    );
-  }
-
-  @override
-  Future<int> runServerpodCommand(
-    RunnerSession session,
-    List<String> arguments, {
-    String workingDirectory = 'serverpod/practice_server',
-  }) async {
-    final container = _requireContainer(session);
-    return _runLoggedProcess(
-      session,
-      [
-        'exec',
-        '--workdir',
-        _containerWorkingDirectory(workingDirectory),
-        container,
-        serverpodExecutable,
-        ...arguments,
-      ],
-      logPrefix: '[serverpod] ',
-      stderrPrefix: '[serverpod stderr] ',
     );
   }
 
@@ -194,7 +177,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
         '--',
         ...removedPaths,
       ]);
-      _ensureSuccess(session, result, 'remove deleted workspace files');
+      _ensureSuccess(
+        session,
+        result,
+        'remove deleted workspace files',
+      );
     }
 
     final source = '${session.directory.path}${Platform.pathSeparator}.';
@@ -203,7 +190,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       source,
       '$container:/workspace',
     ]);
-    _ensureSuccess(session, copyResult, 'copy workspace into container');
+    _ensureSuccess(
+      session,
+      copyResult,
+      'copy workspace into container',
+    );
 
     final ownershipResult = await _runDocker([
       'exec',
@@ -215,7 +206,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       runnerOwnership,
       '/workspace',
     ]);
-    _ensureSuccess(session, ownershipResult, 'restore workspace ownership');
+    _ensureSuccess(
+      session,
+      ownershipResult,
+      'restore workspace ownership',
+    );
   }
 
   @override
@@ -263,9 +258,15 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
   }
 
   @override
-  Future<RunnerProcessLaunch> startDartFrog(RunnerSession session) async {
+  Future<RunnerProcessLaunch> startDartFrog(
+    RunnerSession session,
+  ) async {
     final container = _requireContainer(session);
-    final backendPort = _requireBackendPort(session);
+    final backendPort = session.runtimeBackendPort;
+    if (backendPort == null) {
+      throw StateError('Docker backend port is not available.');
+    }
+
     final arguments = <String>[
       'dev',
       '--host',
@@ -300,65 +301,6 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
   }
 
   @override
-  Future<RunnerProcessLaunch> startServerpod(
-    RunnerSession session, {
-    String workingDirectory = 'serverpod/practice_server',
-  }) async {
-    final container = _requireContainer(session);
-    final backendPort = _requireBackendPort(session);
-
-    final usesDatabase = await postgresSidecar.workspaceUsesDatabase(
-      session,
-      workingDirectory: workingDirectory,
-    );
-    if (usesDatabase) {
-      session.addLog(
-        '[database] Persisted Serverpod model detected; preparing PostgreSQL.',
-      );
-      await postgresSidecar.prepare(session);
-    }
-    final databaseEnvironment = postgresSidecar.serverpodEnvironment(session);
-
-    final process = await Process.start(
-      dockerExecutable,
-      [
-        'exec',
-        '--interactive',
-        '--workdir',
-        _containerWorkingDirectory(workingDirectory),
-        '--env',
-        'SERVERPOD_API_SERVER_PORT=$containerBackendPort',
-        '--env',
-        'SERVERPOD_API_SERVER_PUBLIC_PORT=$containerBackendPort',
-        '--env',
-        'SERVERPOD_API_SERVER_PUBLIC_HOST=localhost',
-        '--env',
-        'SERVERPOD_API_SERVER_PUBLIC_SCHEME=http',
-        for (final entry in databaseEnvironment.entries) ...[
-          '--env',
-          '${entry.key}=${entry.value}',
-        ],
-        container,
-        dartExecutable,
-        'bin/main.dart',
-        '--mode',
-        'development',
-      ],
-      runInShell: false,
-    );
-
-    return RunnerProcessLaunch(
-      process: process,
-      previewPort: backendPort,
-      description: usesDatabase
-          ? 'docker exec $container dart bin/main.dart --mode development '
-              '(host port $backendPort, PostgreSQL sidecar)'
-          : 'docker exec $container dart bin/main.dart --mode development '
-              '(host port $backendPort)',
-    );
-  }
-
-  @override
   Future<void> forceStop(
     RunnerSession session,
     Process process,
@@ -378,7 +320,11 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
       '1',
       container,
     ]);
-    _ensureSuccess(session, result, 'restart Docker runtime');
+    _ensureSuccess(
+      session,
+      result,
+      'restart Docker runtime',
+    );
 
     try {
       await process.exitCode.timeout(const Duration(seconds: 2));
@@ -389,10 +335,10 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
 
   @override
   Future<void> disposeSession(RunnerSession session) async {
-    await postgresSidecar.dispose(session);
-
     final container = session.runtimeId;
-    if (container == null) return;
+    if (container == null) {
+      return;
+    }
 
     final result = await _runDocker(
       ['rm', '--force', container],
@@ -447,7 +393,9 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
         runInShell: false,
       );
     } on ProcessException {
-      if (logFailure) rethrow;
+      if (logFailure) {
+        rethrow;
+      }
       return ProcessResult(-1, 127, '', 'Docker executable not available.');
     }
   }
@@ -457,14 +405,19 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     ProcessResult result,
     String operation,
   ) {
-    if (result.exitCode == 0) return;
+    if (result.exitCode == 0) {
+      return;
+    }
     _logProcessResult(session, result);
     throw StateError(
       'Failed to $operation (docker exit code ${result.exitCode}).',
     );
   }
 
-  void _logProcessResult(RunnerSession session, ProcessResult result) {
+  void _logProcessResult(
+    RunnerSession session,
+    ProcessResult result,
+  ) {
     final stdoutText = '${result.stdout}'.trim();
     final stderrText = '${result.stderr}'.trim();
     if (stdoutText.isNotEmpty) {
@@ -487,26 +440,26 @@ class DockerExecutionBackend implements RunnerExecutionBackend {
     return container;
   }
 
-  int _requireBackendPort(RunnerSession session) {
-    final port = session.runtimeBackendPort;
-    if (port == null) {
-      throw StateError('Docker backend port is not available.');
-    }
-    return port;
-  }
-
   String _containerWorkingDirectory(String relativePath) {
-    if (relativePath.isEmpty || relativePath == '.') return '/workspace';
+    if (relativePath.isEmpty || relativePath == '.') {
+      return '/workspace';
+    }
     return '/workspace/$relativePath';
   }
 
   String _containerName(String sessionId) {
-    final safe = sessionId.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '-');
+    final safe = sessionId.replaceAll(
+      RegExp(r'[^A-Za-z0-9_.-]'),
+      '-',
+    );
     return 'flutter-practice-$safe';
   }
 
   Future<int> _reservePort() async {
-    final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final socket = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     final port = socket.port;
     await socket.close();
     return port;

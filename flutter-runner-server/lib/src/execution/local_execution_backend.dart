@@ -10,13 +10,11 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
     required this.flutterExecutable,
     this.dartExecutable = 'dart',
     this.dartFrogExecutable = 'dart_frog',
-    this.serverpodExecutable = 'serverpod',
   });
 
   final String flutterExecutable;
   final String dartExecutable;
   final String dartFrogExecutable;
-  final String serverpodExecutable;
 
   @override
   String get name => 'local';
@@ -50,22 +48,6 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
       workingDirectory: _workingDirectory(session, workingDirectory),
       logPrefix: '[backend] ',
       stderrPrefix: '[backend stderr] ',
-    );
-  }
-
-  @override
-  Future<int> runServerpodCommand(
-    RunnerSession session,
-    List<String> arguments, {
-    String workingDirectory = 'serverpod/practice_server',
-  }) {
-    return _runLoggedProcess(
-      session,
-      serverpodExecutable,
-      arguments,
-      workingDirectory: _workingDirectory(session, workingDirectory),
-      logPrefix: '[serverpod] ',
-      stderrPrefix: '[serverpod stderr] ',
     );
   }
 
@@ -132,32 +114,6 @@ class LocalExecutionBackend implements RunnerExecutionBackend {
       process: process,
       previewPort: port,
       description: 'dart_frog ${arguments.join(' ')}',
-    );
-  }
-
-  @override
-  Future<RunnerProcessLaunch> startServerpod(
-    RunnerSession session, {
-    String workingDirectory = 'serverpod/practice_server',
-  }) async {
-    final port = await _reservePort();
-    final process = await Process.start(
-      dartExecutable,
-      const ['bin/main.dart', '--mode', 'development'],
-      workingDirectory: _workingDirectory(session, workingDirectory),
-      runInShell: true,
-      environment: {
-        'SERVERPOD_API_SERVER_PORT': '$port',
-        'SERVERPOD_API_SERVER_PUBLIC_PORT': '$port',
-        'SERVERPOD_API_SERVER_PUBLIC_HOST': 'localhost',
-        'SERVERPOD_API_SERVER_PUBLIC_SCHEME': 'http',
-      },
-    );
-
-    return RunnerProcessLaunch(
-      process: process,
-      previewPort: port,
-      description: 'dart bin/main.dart --mode development (port $port)',
     );
   }
 
