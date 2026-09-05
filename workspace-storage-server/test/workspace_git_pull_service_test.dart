@@ -27,7 +27,7 @@ void main() {
 
     await workspaceStore.createWorkspace(
       userId: 'alice',
-      project: _project(),
+      project: _project(projectPath: 'apps/mobile'),
       snapshot: _snapshot(),
     );
   });
@@ -36,7 +36,7 @@ void main() {
     if (await temp.exists()) await temp.delete(recursive: true);
   });
 
-  test('pull shallow-clones one Flutter root with a git-scoped vault secret', () async {
+  test('pull selects the bound Flutter project from a monorepo', () async {
     await secretStore.putSecret(
       userId: 'alice',
       workspaceId: 'workspace-a',
@@ -50,13 +50,20 @@ void main() {
         'apps/mobile/pubspec.yaml',
         'name: pulled_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
       );
-      await _write(
-        root,
-        'apps/mobile/lib/main.dart',
-        'void main() {}\n',
-      );
+      await _write(root, 'apps/mobile/lib/main.dart', 'void main() {}\n');
       await _write(root, 'apps/mobile/README.md', '# Pulled\n');
       await _write(root, 'apps/mobile/android/local.properties', 'ignored=true\n');
+
+      await _write(
+        root,
+        'apps/admin/pubspec.yaml',
+        'name: admin_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
+      );
+      await _write(
+        root,
+        'apps/admin/lib/main.dart',
+        'void main() => print("admin");\n',
+      );
       await _write(root, 'tools/readme.txt', 'outside selected Flutter root\n');
     };
 
@@ -75,20 +82,22 @@ void main() {
     expect(result.files['lib/main.dart'], 'void main() {}\n');
     expect(result.files['README.md'], '# Pulled\n');
     expect(result.files, isNot(contains('android/local.properties')));
+    expect(result.files, isNot(contains('apps/admin/lib/main.dart')));
     expect(result.files, isNot(contains('tools/readme.txt')));
   });
 
-  test('pull preserves binary portable assets with the binary envelope', () async {
+  test('pull preserves binary portable assets inside the bound project', () async {
     final logoBytes = <int>[137, 80, 78, 71, 0, 1, 2, 3, 255];
     executor.populate = (root) async {
       await _write(
         root,
-        'pubspec.yaml',
+        'apps/mobile/pubspec.yaml',
         'name: binary_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
       );
-      await _write(root, 'lib/main.dart', 'void main() {}\n');
+      await _write(root, 'apps/mobile/lib/main.dart', 'void main() {}\n');
       final asset = File(
-        '${root.path}${Platform.pathSeparator}assets${Platform.pathSeparator}logo.png',
+        '${root.path}${Platform.pathSeparator}apps${Platform.pathSeparator}mobile'
+        '${Platform.pathSeparator}assets${Platform.pathSeparator}logo.png',
       );
       await asset.parent.create(recursive: true);
       await asset.writeAsBytes(logoBytes);
@@ -107,6 +116,28 @@ void main() {
         payload!.substring(WorkspaceGitPullService.binaryFilePrefix.length),
       ),
       orderedEquals(logoBytes),
+    );
+  });
+
+  test('pull rejects a bound path that is not a runnable Flutter project', () async {
+    executor.populate = (root) async {
+      await _write(
+        root,
+        'apps/admin/pubspec.yaml',
+        'name: admin_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
+      );
+      await _write(root, 'apps/admin/lib/main.dart', 'void main() {}\n');
+    };
+
+    await expectLater(
+      pullService.pull(userId: 'alice', workspaceId: 'workspace-a'),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('apps/mobile'),
+        ),
+      ),
     );
   });
 }
@@ -147,7 +178,7 @@ Future<void> _write(Directory root, String relativePath, String content) async {
   await file.writeAsString(content);
 }
 
-Map<String, dynamic> _project() => <String, dynamic>{
+Map<String, dynamic> _project({String? projectPath}) => <String, dynamic>{
       'id': 'workspace-a',
       'name': 'Workspace A',
       'storageKey': 'workspace:workspace-a',
@@ -159,6 +190,7 @@ Map<String, dynamic> _project() => <String, dynamic>{
         'repositoryUrl': 'https://github.com/team/private-app.git',
         'remoteName': 'origin',
         'branch': 'main',
+        if (projectPath != null) 'projectPath': projectPath,
         'provider': 'github',
       },
     };

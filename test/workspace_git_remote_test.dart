@@ -7,18 +7,29 @@ import 'package:flutter_ui_playground/features/workspace/services/workspace_proj
 import 'package:flutter_ui_playground/features/workspace/services/workspace_snapshot_store.dart';
 
 void main() {
-  test('Git remote detects providers and persists without credentials', () {
+  test('Git remote detects providers and persists project path without credentials', () {
     final github = WorkspaceGitRemote(
       repositoryUrl: 'https://github.com/chengyang1017/flutter_learining.git',
       branch: 'feature/cloud-workspace',
+      projectPath: ' apps/mobile/ ',
     );
     expect(github.provider, WorkspaceGitProvider.github);
     expect(github.remoteName, 'origin');
+    expect(github.projectPath, 'apps/mobile');
 
     final restored = WorkspaceGitRemote.fromJson(github.toJson());
     expect(restored.repositoryUrl, github.repositoryUrl);
     expect(restored.branch, 'feature/cloud-workspace');
+    expect(restored.projectPath, 'apps/mobile');
     expect(restored.provider, WorkspaceGitProvider.github);
+
+    final legacy = WorkspaceGitRemote.fromJson(<String, Object?>{
+      'repositoryUrl': 'https://github.com/team/legacy.git',
+      'remoteName': 'origin',
+      'branch': 'main',
+      'provider': 'github',
+    });
+    expect(legacy.projectPath, isNull);
 
     final gitlab = WorkspaceGitRemote(
       repositoryUrl: 'git@gitlab.com:team/project.git',
@@ -26,7 +37,7 @@ void main() {
     expect(gitlab.provider, WorkspaceGitProvider.gitlab);
   });
 
-  test('Git remote rejects embedded credentials and unsafe branch names', () {
+  test('Git remote rejects embedded credentials, unsafe branch and project path', () {
     expect(
       () => WorkspaceGitRemote(
         repositoryUrl: 'https://token@github.com/team/project.git',
@@ -46,6 +57,15 @@ void main() {
       ),
       throwsFormatException,
     );
+    for (final path in <String>['../mobile', '/apps/mobile', 'apps\\mobile', 'apps//mobile']) {
+      expect(
+        () => WorkspaceGitRemote(
+          repositoryUrl: 'https://github.com/team/project.git',
+          projectPath: path,
+        ),
+        throwsFormatException,
+      );
+    }
   });
 
   test('WorkspaceProject keeps Git binding separate from other metadata', () {
@@ -60,6 +80,7 @@ void main() {
       gitRemote: WorkspaceGitRemote(
         repositoryUrl: 'https://github.com/team/project.git',
         branch: 'main',
+        projectPath: 'apps/mobile',
       ),
     );
 
@@ -67,6 +88,7 @@ void main() {
     expect(restored.gitRemote, isNotNull);
     expect(restored.gitRemote!.provider, WorkspaceGitProvider.github);
     expect(restored.gitRemote!.repositoryUrl, contains('github.com/team/project'));
+    expect(restored.gitRemote!.projectPath, 'apps/mobile');
   });
 
   test('project library binds, persists and removes Git remote', () async {
@@ -79,10 +101,12 @@ void main() {
     final remote = WorkspaceGitRemote(
       repositoryUrl: 'https://github.com/team/project.git',
       branch: 'develop',
+      projectPath: 'apps/mobile',
     );
 
     await library.bindGitRemote(project.id, remote);
     expect(library.projectById(project.id)?.gitRemote?.branch, 'develop');
+    expect(library.projectById(project.id)?.gitRemote?.projectPath, 'apps/mobile');
 
     final reopened = WorkspaceProjectLibrary(
       catalogStore: catalog,
@@ -90,6 +114,7 @@ void main() {
     );
     expect(reopened.projectById(project.id)?.gitRemote?.provider,
         WorkspaceGitProvider.github);
+    expect(reopened.projectById(project.id)?.gitRemote?.projectPath, 'apps/mobile');
 
     await reopened.unbindGitRemote(project.id);
     expect(reopened.projectById(project.id)?.gitRemote, isNull);
@@ -99,6 +124,38 @@ void main() {
       snapshotStore: _MemorySnapshotStore(),
     );
     expect(reopenedAgain.projectById(project.id)?.gitRemote, isNull);
+  });
+
+  test('changing bound project path invalidates trusted Git HEAD', () async {
+    final catalog = _MemoryCatalogStore();
+    final library = WorkspaceProjectLibrary(
+      catalogStore: catalog,
+      snapshotStore: _MemorySnapshotStore(),
+    );
+    final project = await library.createPractice('Monorepo Practice');
+
+    await library.bindGitRemote(
+      project.id,
+      WorkspaceGitRemote(
+        repositoryUrl: 'https://github.com/team/monorepo.git',
+        branch: 'main',
+        projectPath: 'apps/mobile',
+        lastSyncedHead: 'aaaaaaaaaaaaaaaa',
+      ),
+    );
+    await library.bindGitRemote(
+      project.id,
+      WorkspaceGitRemote(
+        repositoryUrl: 'https://github.com/team/monorepo.git',
+        branch: 'main',
+        projectPath: 'apps/admin',
+        lastSyncedHead: 'aaaaaaaaaaaaaaaa',
+      ),
+    );
+
+    final binding = library.projectById(project.id)!.gitRemote!;
+    expect(binding.projectPath, 'apps/admin');
+    expect(binding.lastSyncedHead, isNull);
   });
 }
 

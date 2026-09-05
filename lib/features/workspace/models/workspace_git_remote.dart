@@ -10,6 +10,7 @@ class WorkspaceGitRemote {
     required String repositoryUrl,
     String remoteName = 'origin',
     String branch = 'main',
+    String? projectPath,
     WorkspaceGitProvider? provider,
     String? lastSyncedHead,
   }) {
@@ -18,6 +19,7 @@ class WorkspaceGitRemote {
       repositoryUrl: normalizedUrl,
       remoteName: _validateRemoteName(remoteName),
       branch: _validateBranch(branch),
+      projectPath: _validateProjectPath(projectPath),
       provider: provider ?? _detectProvider(normalizedUrl),
       lastSyncedHead: _validateSyncedHead(lastSyncedHead),
     );
@@ -27,6 +29,7 @@ class WorkspaceGitRemote {
     required this.repositoryUrl,
     required this.remoteName,
     required this.branch,
+    required this.projectPath,
     required this.provider,
     required this.lastSyncedHead,
   });
@@ -36,6 +39,11 @@ class WorkspaceGitRemote {
   final String repositoryUrl;
   final String remoteName;
   final String branch;
+
+  /// Optional path to one Flutter project inside a monorepo, for example
+  /// `apps/mobile`. Null means auto-detect one runnable Flutter project.
+  final String? projectPath;
+
   final WorkspaceGitProvider provider;
 
   /// Last remote commit that was safely imported into this Workspace.
@@ -46,6 +54,8 @@ class WorkspaceGitRemote {
     String? repositoryUrl,
     String? remoteName,
     String? branch,
+    String? projectPath,
+    bool clearProjectPath = false,
     WorkspaceGitProvider? provider,
     String? lastSyncedHead,
     bool clearLastSyncedHead = false,
@@ -54,6 +64,7 @@ class WorkspaceGitRemote {
       repositoryUrl: repositoryUrl ?? this.repositoryUrl,
       remoteName: remoteName ?? this.remoteName,
       branch: branch ?? this.branch,
+      projectPath: clearProjectPath ? null : projectPath ?? this.projectPath,
       provider: provider ?? this.provider,
       lastSyncedHead:
           clearLastSyncedHead ? null : lastSyncedHead ?? this.lastSyncedHead,
@@ -64,6 +75,7 @@ class WorkspaceGitRemote {
         'repositoryUrl': repositoryUrl,
         'remoteName': remoteName,
         'branch': branch,
+        if (projectPath != null) 'projectPath': projectPath,
         'provider': provider.name,
         if (lastSyncedHead != null) 'lastSyncedHead': lastSyncedHead,
       };
@@ -72,10 +84,12 @@ class WorkspaceGitRemote {
     final repositoryUrl = json['repositoryUrl'];
     final remoteName = json['remoteName'];
     final branch = json['branch'];
+    final projectPath = json['projectPath'];
     final lastSyncedHead = json['lastSyncedHead'];
     if (repositoryUrl is! String ||
         remoteName is! String ||
         branch is! String ||
+        (projectPath != null && projectPath is! String) ||
         (lastSyncedHead != null && lastSyncedHead is! String)) {
       throw const FormatException('Invalid Workspace Git remote metadata.');
     }
@@ -90,6 +104,7 @@ class WorkspaceGitRemote {
       repositoryUrl: repositoryUrl,
       remoteName: remoteName,
       branch: branch,
+      projectPath: projectPath as String?,
       provider: provider,
       lastSyncedHead: lastSyncedHead as String?,
     );
@@ -171,6 +186,27 @@ class WorkspaceGitRemote {
         source.contains('//') ||
         source.contains('@{')) {
       throw const FormatException('Invalid Git branch name.');
+    }
+    return source;
+  }
+
+  static String? _validateProjectPath(String? value) {
+    if (value == null) return null;
+    var source = value.trim();
+    if (source.isEmpty) return null;
+    while (source.endsWith('/')) {
+      source = source.substring(0, source.length - 1);
+    }
+    if (source.isEmpty ||
+        source.startsWith('/') ||
+        source.contains('\\') ||
+        source.contains('//')) {
+      throw const FormatException('Invalid Git Flutter project path.');
+    }
+    final parts = source.split('/');
+    if (parts.any((part) =>
+        part.isEmpty || part == '.' || part == '..' || part.contains('\u0000'))) {
+      throw const FormatException('Invalid Git Flutter project path.');
     }
     return source;
   }

@@ -46,28 +46,58 @@ void main() {
     if (await temp.exists()) await temp.delete(recursive: true);
   });
 
-  test('push applies persisted Workspace only after both revisions match', () async {
+  test('push updates only the bound Flutter project after both guards match', () async {
     cloneExecutor.remoteHead = 'aaaaaaaaaaaaaaaa';
     cloneExecutor.populate = (root) async {
       await _write(
         root,
-        'pubspec.yaml',
+        'apps/mobile/pubspec.yaml',
         'name: old_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
       );
-      await _write(root, 'lib/main.dart', 'void main() => print("old");\n');
-      await _write(root, 'lib/deleted.dart', 'class Deleted {}\n');
-      await _write(root, 'android/keep.txt', 'platform file\n');
-      await _writeBytes(root, 'assets/logo.png', <int>[1, 2, 3]);
+      await _write(
+        root,
+        'apps/mobile/lib/main.dart',
+        'void main() => print("old");\n',
+      );
+      await _write(root, 'apps/mobile/lib/deleted.dart', 'class Deleted {}\n');
+      await _write(root, 'apps/mobile/android/keep.txt', 'platform file\n');
+      await _writeBytes(root, 'apps/mobile/assets/logo.png', <int>[1, 2, 3]);
+
+      await _write(
+        root,
+        'apps/admin/pubspec.yaml',
+        'name: admin_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
+      );
+      await _write(
+        root,
+        'apps/admin/lib/main.dart',
+        'void main() => print("admin untouched");\n',
+      );
+      await _write(root, 'tools/release.txt', 'keep monorepo tooling\n');
     };
     pushExecutor.inspect = (root) async {
-      expect(await _read(root, 'lib/main.dart'), 'void main() => print("new");\n');
-      expect(await _read(root, 'lib/new_file.dart'), 'class NewFile {}\n');
-      expect(await _exists(root, 'lib/deleted.dart'), isFalse);
-      expect(await _read(root, 'android/keep.txt'), 'platform file\n');
       expect(
-        await _readBytes(root, 'assets/logo.png'),
+        await _read(root, 'apps/mobile/lib/main.dart'),
+        'void main() => print("new");\n',
+      );
+      expect(
+        await _read(root, 'apps/mobile/lib/new_file.dart'),
+        'class NewFile {}\n',
+      );
+      expect(await _exists(root, 'apps/mobile/lib/deleted.dart'), isFalse);
+      expect(
+        await _read(root, 'apps/mobile/android/keep.txt'),
+        'platform file\n',
+      );
+      expect(
+        await _readBytes(root, 'apps/mobile/assets/logo.png'),
         <int>[137, 80, 78, 71, 0, 1, 2, 3],
       );
+      expect(
+        await _read(root, 'apps/admin/lib/main.dart'),
+        'void main() => print("admin untouched");\n',
+      );
+      expect(await _read(root, 'tools/release.txt'), 'keep monorepo tooling\n');
     };
 
     final result = await pushService.push(
@@ -211,10 +241,10 @@ class _FakePushExecutor implements WorkspaceGitPushCommandExecutor {
 Future<void> _populateFlutterRoot(Directory root) async {
   await _write(
     root,
-    'pubspec.yaml',
+    'apps/mobile/pubspec.yaml',
     'name: old_app\ndependencies:\n  flutter:\n    sdk: flutter\n',
   );
-  await _write(root, 'lib/main.dart', 'void main() {}\n');
+  await _write(root, 'apps/mobile/lib/main.dart', 'void main() {}\n');
 }
 
 Future<void> _write(Directory root, String relativePath, String content) async {
@@ -262,6 +292,7 @@ Map<String, dynamic> _project() => <String, dynamic>{
         'repositoryUrl': 'https://github.com/team/private-app.git',
         'remoteName': 'origin',
         'branch': 'main',
+        'projectPath': 'apps/mobile',
         'provider': 'github',
       },
     };

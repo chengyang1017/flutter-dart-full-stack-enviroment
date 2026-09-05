@@ -340,6 +340,7 @@ class WorkspaceGitPushService {
 
     final repositoryUrl = _validateRepositoryUrl(remote['repositoryUrl']);
     final branch = _validateBranch(remote['branch']);
+    final projectPath = _validateProjectPath(remote['projectPath']);
     final provider = _readProvider(remote['provider']);
     final expectedHead = _validateHead(expectedRemoteHead);
     final message = _validateCommitMessage(commitMessage);
@@ -393,7 +394,10 @@ class WorkspaceGitPushService {
         );
       }
 
-      final flutterRoot = await _findFlutterRoot(checkout);
+      final flutterRoot = await _findFlutterRoot(
+        checkout,
+        projectPath: projectPath,
+      );
       await _applyWorkspaceFiles(
         checkout: checkout,
         flutterRoot: flutterRoot,
@@ -495,7 +499,40 @@ class WorkspaceGitPushService {
     return files;
   }
 
-  Future<String> _findFlutterRoot(Directory checkout) async {
+  Future<String> _findFlutterRoot(
+    Directory checkout, {
+    String? projectPath,
+  }) async {
+    if (projectPath != null) {
+      final root = Directory(
+        '${checkout.path}${Platform.pathSeparator}${_platformPath(projectPath)}',
+      );
+      if (!await root.exists()) {
+        throw FormatException(
+          'Bound Git Flutter project path does not exist: $projectPath',
+        );
+      }
+      final pubspec = File('${root.path}${Platform.pathSeparator}pubspec.yaml');
+      final main = File(
+        '${root.path}${Platform.pathSeparator}lib${Platform.pathSeparator}main.dart',
+      );
+      if (!await pubspec.exists() || !await main.exists()) {
+        throw FormatException(
+          'Bound Git Flutter project path is not runnable: $projectPath.',
+        );
+      }
+      final pubspecText = await _tryReadText(pubspec);
+      final mainText = await _tryReadText(main);
+      if (pubspecText == null ||
+          mainText == null ||
+          !_looksLikeFlutterPubspec(pubspecText)) {
+        throw FormatException(
+          'Bound Git Flutter project path is not runnable: $projectPath.',
+        );
+      }
+      return projectPath;
+    }
+
     final candidates = <String>[];
     await for (final entity in checkout.list(recursive: true, followLinks: false)) {
       if (entity is Link) {
@@ -531,9 +568,10 @@ class WorkspaceGitPushService {
       );
     }
     if (candidates.length > 1) {
-      throw const FormatException(
-        'Git repository contains multiple runnable Flutter projects. '
-        'A subdirectory binding is required before pushing this repository.',
+      candidates.sort();
+      throw FormatException(
+        'Git repository contains multiple runnable Flutter projects: '
+        '${candidates.join(', ')}. Bind a Flutter project path first.',
       );
     }
     return candidates.single;
@@ -684,6 +722,29 @@ class WorkspaceGitPushService {
         source.startsWith('/') ||
         source.endsWith('/')) {
       throw const FormatException('Invalid Git branch name.');
+    }
+    return source;
+  }
+
+  String? _validateProjectPath(Object? value) {
+    if (value == null) return null;
+    if (value is! String) {
+      throw const FormatException('Invalid Git Flutter project path.');
+    }
+    var source = value.trim();
+    if (source.isEmpty) return null;
+    while (source.endsWith('/')) {
+      source = source.substring(0, source.length - 1);
+    }
+    if (source.isEmpty ||
+        source.startsWith('/') ||
+        source.contains('\\') ||
+        source.contains('//')) {
+      throw const FormatException('Invalid Git Flutter project path.');
+    }
+    final parts = source.split('/');
+    if (parts.any((part) => part.isEmpty || part == '.' || part == '..')) {
+      throw const FormatException('Invalid Git Flutter project path.');
     }
     return source;
   }

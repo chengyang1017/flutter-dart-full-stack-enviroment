@@ -47,6 +47,10 @@ void main() {
       find.byKey(const ValueKey('workspace-git-branch')),
       'develop',
     );
+    await tester.enterText(
+      find.byKey(const ValueKey('workspace-git-project-path')),
+      'apps/mobile/',
+    );
     await tester.tap(find.byKey(const ValueKey('workspace-git-save')));
     await tester.pumpAndSettle();
 
@@ -54,7 +58,42 @@ void main() {
     expect(result!.unbind, isFalse);
     expect(result!.remote?.repositoryUrl, 'https://github.com/team/app.git');
     expect(result!.remote?.branch, 'develop');
+    expect(result!.remote?.projectPath, 'apps/mobile');
     expect(result!.remote?.provider, WorkspaceGitProvider.github);
+  });
+
+  testWidgets('Git remote dialog rejects unsafe project path', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<WorkspaceGitRemoteDialogResult>(
+                context: context,
+                builder: (_) => const WorkspaceGitRemoteDialog(),
+              ),
+              child: const Text('Git'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Git'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('workspace-git-repository-url')),
+      'https://github.com/team/monorepo.git',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('workspace-git-project-path')),
+      '../outside',
+    );
+    await tester.tap(find.byKey(const ValueKey('workspace-git-save')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('workspace-git-error')), findsOneWidget);
+    expect(find.textContaining('project path'), findsOneWidget);
   });
 
   testWidgets('existing Git binding can be unbound', (tester) async {
@@ -62,6 +101,7 @@ void main() {
     final remote = WorkspaceGitRemote(
       repositoryUrl: 'https://github.com/team/app.git',
       branch: 'main',
+      projectPath: 'apps/mobile',
     );
 
     await tester.pumpWidget(
@@ -86,6 +126,12 @@ void main() {
 
     await tester.tap(find.text('Git'));
     await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(
+        find.byKey(const ValueKey('workspace-git-project-path')),
+      ).controller?.text,
+      'apps/mobile',
+    );
     await tester.tap(find.byKey(const ValueKey('workspace-git-unbind')));
     await tester.pumpAndSettle();
 

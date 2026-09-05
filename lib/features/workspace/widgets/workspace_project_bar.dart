@@ -172,8 +172,9 @@ class WorkspaceProjectBar extends StatelessWidget {
     if (remote == null) return '$localStatus · 未绑定 Git';
 
     final provider = _providerLabel(remote.provider);
+    final projectPath = remote.projectPath == null ? '' : ' · ${remote.projectPath}';
     final sync = remote.lastSyncedHead == null ? '待首次同步' : '已同步';
-    return '$localStatus · $provider ${remote.branch} · $sync';
+    return '$localStatus · $provider ${remote.branch}$projectPath · $sync';
   }
 
   String _providerLabel(WorkspaceGitProvider provider) => switch (provider) {
