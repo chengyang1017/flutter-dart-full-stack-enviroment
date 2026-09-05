@@ -1,27 +1,17 @@
 import '../models/workspace_remote_models.dart';
-import 'workspace_remote_session_provider.dart';
+import 'workspace_remote_persistence.dart';
 
 class WorkspaceRemoteHydrator {
-  const WorkspaceRemoteHydrator(this.sessions);
+  const WorkspaceRemoteHydrator(this.remote);
 
-  final WorkspaceRemoteSessionProvider sessions;
+  final WorkspaceRemotePersistence remote;
 
-  /// Hydrates the cloud Workspace for the current authenticated user.
-  ///
-  /// A null result means there is no remote auth session. This is distinct
-  /// from an authenticated user whose remote catalog is simply empty.
-  Future<WorkspaceHydrationResult?> hydrate({
+  Future<WorkspaceHydrationResult> hydrate({
     String? preferredWorkspaceId,
   }) async {
-    final remote = await sessions.currentRemote();
-    if (remote == null) {
-      return null;
-    }
-
     final catalog = await remote.loadCatalog();
     if (catalog.projects.isEmpty) {
       return WorkspaceHydrationResult(
-        identity: remote.identity,
         catalog: catalog,
         activeDocument: null,
       );
@@ -47,7 +37,6 @@ class WorkspaceRemoteHydrator {
     }
 
     return WorkspaceHydrationResult(
-      identity: remote.identity,
       catalog: catalog,
       activeDocument: document,
     );
