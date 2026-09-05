@@ -206,6 +206,45 @@ Container(
     );
   }
 
+  /// Insert a code snippet at the current editor cursor position.
+  ///
+  /// The editor uses a line-based selection model (CodeLineSelection). This
+  /// helper inserts `snippet` into the active line at the current offset and
+  /// restores the cursor after the inserted text.
+  void insertSnippet(String snippet) {
+    final sel = textController.selection;
+
+    final normalized = textController.text.replaceAll('\r\n', '\n');
+    final lines = normalized.split('\n');
+
+    if (sel == null) {
+      // No selection info — append to end.
+      textController.text = normalized + snippet;
+      updateCode();
+      return;
+    }
+
+    final lineIndex = sel.index.clamp(0, lines.length - 1);
+    final line = lines[lineIndex];
+    final offset = sel.offset.clamp(0, line.length);
+
+    final before = line.substring(0, offset);
+    final after = line.substring(offset);
+
+    lines[lineIndex] = before + snippet + after;
+
+    final newText = lines.join('\n');
+    final newOffset = before.length + snippet.length;
+
+    textController.text = newText;
+    textController.selection = CodeLineSelection.collapsed(
+      index: lineIndex,
+      offset: newOffset,
+    );
+
+    updateCode();
+  }
+
   void runCode() {
     _debounce?.cancel();
 
