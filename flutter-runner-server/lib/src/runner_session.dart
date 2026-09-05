@@ -41,11 +41,10 @@ class RunnerSession {
   int? runtimePreviewPort;
   int? runtimeBackendPort;
 
-  // Runtime-specific state is intentionally not serialized to clients.
-  // Local execution does not need these fields; the Docker backend uses them
-  // for its container id/name and the host port mapped to Flutter web-server.
-  String? runtimeId;
-  int? runtimePreviewPort;
+  // Database / network sidecar runtime identifiers (used by Docker postgres helper)
+  String? databaseRuntimeId;
+  String? runtimeNetworkId;
+  String? databasePassword;
 
   final List<RunnerLogEntry> logs = <RunnerLogEntry>[];
   final Set<String> managedFiles = <String>{};
