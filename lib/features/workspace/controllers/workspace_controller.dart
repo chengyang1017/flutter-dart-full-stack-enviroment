@@ -13,24 +13,11 @@ class WorkspaceController extends ChangeNotifier {
     required this.activePath,
     List<String>? openFiles,
     int nextId = 1,
-    Set<String>? expandedDirectoryIds,
-    Map<String, WorkspaceEditorState>? editorStates,
   })  : _entries = {for (final entry in entries) entry.id: entry},
         _baseEntries = {
           for (final entry in baseEntries ?? entries) entry.id: entry,
         },
         _openFiles = List<String>.of(openFiles ?? <String>[activePath]),
-        _expandedDirectoryIds = Set<String>.of(
-          expandedDirectoryIds ??
-              entries
-                  .where(
-                    (entry) => entry.isDirectory && entry.parentPath.isEmpty,
-                  )
-                  .map((entry) => entry.id),
-        ),
-        _editorStates = Map<String, WorkspaceEditorState>.of(
-          editorStates ?? const <String, WorkspaceEditorState>{},
-        ),
         _nextId = nextId;
 
   factory WorkspaceController.flutterPlayground({
@@ -99,8 +86,6 @@ flutter:
   final Map<String, WorkspaceEntry> _baseEntries;
   final Map<String, WorkspaceEntry> _entries;
   final List<String> _openFiles;
-  final Set<String> _expandedDirectoryIds;
-  final Map<String, WorkspaceEditorState> _editorStates;
 
   Timer? _contentNotificationDebounce;
   int _nextId;
@@ -128,8 +113,6 @@ flutter:
     return null;
   }
 
-  WorkspaceEntry? entryById(String id) => _entries[id];
-
   bool get isDirty => changes.isNotEmpty;
 
   bool isFileDirty(String path) {
@@ -140,37 +123,6 @@ flutter:
     if (base == null) return true;
 
     return base.path != current.path || base.content != current.content;
-  }
-
-  bool isDirectoryExpanded(String path) {
-    final entry = entryAt(path);
-    return entry != null &&
-        entry.isDirectory &&
-        _expandedDirectoryIds.contains(entry.id);
-  }
-
-  void setDirectoryExpanded(String path, bool expanded) {
-    final entry = entryAt(path);
-    if (entry == null || !entry.isDirectory) return;
-
-    final changed = expanded
-        ? _expandedDirectoryIds.add(entry.id)
-        : _expandedDirectoryIds.remove(entry.id);
-    if (changed) notifyListeners();
-  }
-
-  WorkspaceEditorState? editorStateForPath(String path) {
-    final entry = entryAt(path);
-    if (entry == null || !entry.isFile) return null;
-    return _editorStates[entry.id];
-  }
-
-  WorkspaceEditorState? editorStateForEntryId(String id) => _editorStates[id];
-
-  void updateEditorStateByEntryId(String id, WorkspaceEditorState state) {
-    final entry = _entries[id];
-    if (entry == null || !entry.isFile) return;
-    _editorStates[id] = state;
   }
 
   List<WorkspaceChange> get changes {
@@ -225,24 +177,14 @@ flutter:
     return List.unmodifiable(result);
   }
 
-  WorkspaceSnapshot createSnapshot() {
-    final currentIds = _entries.keys.toSet();
-    return WorkspaceSnapshot(
-      entries: List<WorkspaceEntry>.of(_entries.values),
-      baseEntries: List<WorkspaceEntry>.of(_baseEntries.values),
-      openFiles: List<String>.of(_openFiles),
-      activePath: activePath,
-      nextId: _nextId,
-      savedAt: DateTime.now().toUtc(),
-      expandedDirectoryIds: _expandedDirectoryIds
-          .where(currentIds.contains)
-          .toList(growable: false),
-      editorStates: <String, WorkspaceEditorState>{
-        for (final entry in _editorStates.entries)
-          if (currentIds.contains(entry.key)) entry.key: entry.value,
-      },
-    );
-  }
+  WorkspaceSnapshot createSnapshot() => WorkspaceSnapshot(
+        entries: List<WorkspaceEntry>.of(_entries.values),
+        baseEntries: List<WorkspaceEntry>.of(_baseEntries.values),
+        openFiles: List<String>.of(_openFiles),
+        activePath: activePath,
+        nextId: _nextId,
+        savedAt: DateTime.now().toUtc(),
+      );
 
   void restoreSnapshot(WorkspaceSnapshot snapshot) {
     _validateSnapshotEntries(snapshot.entries, label: 'entries');
@@ -264,15 +206,6 @@ flutter:
         .where((entry) => entry.isFile)
         .map((entry) => entry.path)
         .toSet();
-    final availableIds = _entries.keys.toSet();
-    final directoryIds = _entries.values
-        .where((entry) => entry.isDirectory)
-        .map((entry) => entry.id)
-        .toSet();
-    final fileIds = _entries.values
-        .where((entry) => entry.isFile)
-        .map((entry) => entry.id)
-        .toSet();
 
     _openFiles
       ..clear()
@@ -292,17 +225,6 @@ flutter:
     if (activePath.isNotEmpty && !_openFiles.contains(activePath)) {
       _openFiles.add(activePath);
     }
-
-    _expandedDirectoryIds
-      ..clear()
-      ..addAll(snapshot.expandedDirectoryIds.where(directoryIds.contains));
-    _editorStates
-      ..clear()
-      ..addEntries(
-        snapshot.editorStates.entries.where(
-          (entry) => fileIds.contains(entry.key) && availableIds.contains(entry.key),
-        ),
-      );
 
     _nextId = snapshot.nextId > 0 ? snapshot.nextId : 1;
     notifyListeners();
@@ -401,7 +323,6 @@ flutter:
       type: WorkspaceEntryType.directory,
     );
     _entries[entry.id] = entry;
-    _expandedDirectoryIds.add(entry.id);
     notifyListeners();
     return path;
   }
@@ -410,19 +331,16 @@ flutter:
     final entry = entryAt(path);
     if (entry == null) return;
 
-    final removedEntries = _entries.values
+    final removedPaths = _entries.values
         .where((candidate) =>
             candidate.path == path || candidate.path.startsWith('$path/'))
-        .toList(growable: false);
-    final removedPaths = removedEntries.map((entry) => entry.path).toSet();
-    final removedIds = removedEntries.map((entry) => entry.id).toSet();
+        .map((candidate) => candidate.path)
+        .toSet();
 
     _entries.removeWhere(
       (_, candidate) => removedPaths.contains(candidate.path),
     );
     _openFiles.removeWhere(removedPaths.contains);
-    _expandedDirectoryIds.removeAll(removedIds);
-    _editorStates.removeWhere((id, _) => removedIds.contains(id));
 
     if (removedPaths.contains(activePath)) {
       if (_openFiles.isNotEmpty) {
@@ -509,14 +427,6 @@ flutter:
     _openFiles
       ..clear()
       ..add('lib/main.dart');
-    _expandedDirectoryIds
-      ..clear()
-      ..addAll(
-        _baseEntries.values
-            .where((entry) => entry.isDirectory && entry.parentPath.isEmpty)
-            .map((entry) => entry.id),
-      );
-    _editorStates.clear();
     activePath = 'lib/main.dart';
     notifyListeners();
   }

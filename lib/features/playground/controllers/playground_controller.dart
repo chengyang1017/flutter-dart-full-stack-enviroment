@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
 import '../../workspace/controllers/workspace_controller.dart';
-import '../../workspace/models/workspace_snapshot.dart';
 import '../../workspace/services/workspace_autosave.dart';
 import '../../workspace/services/workspace_snapshot_store.dart';
 import '../models/ui_node.dart';
@@ -32,9 +31,6 @@ class PlaygroundController extends ChangeNotifier {
     }
 
     _loadedWorkspacePath = workspace.activePath;
-    _loadedWorkspaceEntryId = workspace.activeEntry?.id ?? '';
-    final restoredEditorState =
-        workspace.editorStateForEntryId(_loadedWorkspaceEntryId);
 
     textController = CodeLineEditingController.fromText(
       workspace.activeEntry?.content ?? '',
@@ -42,25 +38,8 @@ class PlaygroundController extends ChangeNotifier {
         indentSize: 4,
       ),
     );
-    _applySelection(restoredEditorState);
 
-    editorScrollController = CodeScrollController(
-      verticalScroller: ScrollController(
-        initialScrollOffset: restoredEditorState?.verticalOffset ?? 0,
-      ),
-      horizontalScroller: ScrollController(
-        initialScrollOffset: restoredEditorState?.horizontalOffset ?? 0,
-      ),
-    );
-
-    textController.addListener(_handleEditorValueChanged);
-    editorScrollController.verticalScroller.addListener(_handleEditorScroll);
-    editorScrollController.horizontalScroller.addListener(_handleEditorScroll);
     workspace.addListener(_handleWorkspaceChanged);
-
-    // Initialize undo/redo history anchor.
-    _recordInitialText();
-
     runCode();
   }
 
@@ -134,7 +113,6 @@ Container(
 """;
 
   late final CodeLineEditingController textController;
-  late final CodeScrollController editorScrollController;
   late final WorkspaceController workspace;
 
   final FlutterUiParser _parser = FlutterUiParser();
@@ -142,10 +120,7 @@ Container(
   WorkspaceAutosave? _workspaceAutosave;
   Timer? _debounce;
   String _loadedWorkspacePath = '';
-  String _loadedWorkspaceEntryId = '';
   bool _syncingWorkspaceSelection = false;
-  bool _restoringEditorUiState = false;
-  bool _skipCaptureOnNextWorkspaceSync = false;
 
   UiNode? root;
   String? error;
@@ -165,27 +140,20 @@ Container(
   bool get canQuickPreview => activeFilePath.endsWith('.dart');
 
   void selectWorkspaceFile(String path) {
-    _captureEditorUiState();
     workspace.openFile(path);
   }
 
   void closeWorkspaceFile(String path) {
-    if (path == workspace.activePath) {
-      _captureEditorUiState();
-    }
     workspace.closeFile(path);
   }
 
   void resetWorkspace() {
-    _skipCaptureOnNextWorkspaceSync = true;
     workspace.resetWorkspace();
     runCode();
   }
 
-  Future<void> flushWorkspacePersistence() async {
-    _captureEditorUiState();
-    await _workspaceAutosave?.flush();
-  }
+  Future<void> flushWorkspacePersistence() =>
+      _workspaceAutosave?.flush() ?? Future<void>.value();
 
   void updateCode() {
     if (textController.isComposing) {
@@ -208,125 +176,6 @@ Container(
       const Duration(milliseconds: 500),
       runCode,
     );
-  }
-
-  /// Insert a code snippet at the current editor cursor position.
-  ///
-  /// The editor uses a line-based selection model (CodeLineSelection). This
-  /// helper inserts `snippet` into the active line at the current offset and
-  /// restores the cursor after the inserted text.
-  // Simple undo/redo history stacks. These keep full-text snapshots which is
-  // sufficient for an editor with moderate file sizes in this environment.
-  final List<String> _undoStack = [];
-  final List<String> _redoStack = [];
-  bool _isPerformingUndoRedo = false;
-  String _lastRecordedText = '';
-
-  /// Whether undo/redo actions are available.
-  bool get canUndo => _undoStack.isNotEmpty;
-  bool get canRedo => _redoStack.isNotEmpty;
-
-  void _recordInitialText() {
-    _lastRecordedText = textController.text;
-  }
-
-  void insertSnippet(String snippet) {
-    final sel = textController.selection;
-
-    final normalized = textController.text.replaceAll('\r\n', '\n');
-    final lines = normalized.split('\n');
-
-    if (!_isPerformingUndoRedo) {
-      // record previous state for undo
-      _undoStack.add(_lastRecordedText);
-      _redoStack.clear();
-    }
-
-    if (sel == null) {
-      // No selection info — append to end.
-      textController.text = normalized + snippet;
-      _lastRecordedText = textController.text;
-      updateCode();
-      return;
-    }
-
-    final lineIndex = sel.index.clamp(0, lines.length - 1);
-    final line = lines[lineIndex];
-    final offset = sel.offset.clamp(0, line.length);
-
-    final before = line.substring(0, offset);
-    final after = line.substring(offset);
-
-    lines[lineIndex] = before + snippet + after;
-
-    final newText = lines.join('\n');
-    final newOffset = before.length + snippet.length;
-
-    textController.text = newText;
-    textController.selection = CodeLineSelection.collapsed(
-      index: lineIndex,
-      offset: newOffset,
-    );
-
-    _lastRecordedText = textController.text;
-    updateCode();
-  }
-
-  /// Undo the last editor change.
-  void undo() {
-    if (_undoStack.isEmpty) return;
-
-    _isPerformingUndoRedo = true;
-    try {
-      _redoStack.add(textController.text);
-      final previous = _undoStack.removeLast();
-      textController.text = previous;
-      textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
-      _lastRecordedText = previous;
-      updateCode();
-      // Update UI consumers immediately
-      notifyListeners();
-    } finally {
-      _isPerformingUndoRedo = false;
-    }
-  }
-
-  /// Redo the last undone change.
-  void redo() {
-    if (_redoStack.isEmpty) return;
-
-    _isPerformingUndoRedo = true;
-    try {
-      _undoStack.add(textController.text);
-      final next = _redoStack.removeLast();
-      textController.text = next;
-      textController.selection = CodeLineSelection.collapsed(index: 0, offset: 0);
-      _lastRecordedText = next;
-      updateCode();
-      // Update UI consumers immediately
-      notifyListeners();
-    } finally {
-      _isPerformingUndoRedo = false;
-    }
-  }
-
-  /// Minimal formatter: trims trailing whitespace and ensures single final newline.
-  void formatCode() {
-    final current = textController.text.replaceAll('\r\n', '\n');
-    final lines = current.split('\n');
-    final trimmed = lines.map((l) => l.replaceAll(RegExp(r'\s+\$'), '')).join('\n');
-    final result = trimmed.endsWith('\n') ? trimmed : trimmed + '\n';
-
-    if (!_isPerformingUndoRedo) {
-      _undoStack.add(_lastRecordedText);
-      _redoStack.clear();
-    }
-
-    textController.text = result;
-    _lastRecordedText = result;
-    updateCode();
-    // Notify UI of change immediately
-    notifyListeners();
   }
 
   void runCode() {
@@ -445,50 +294,11 @@ Container(
     notifyListeners();
   }
 
-  void _handleEditorValueChanged() {
-    if (_restoringEditorUiState) return;
-    _captureEditorUiState();
-  }
-
-  void _handleEditorScroll() {
-    if (_restoringEditorUiState) return;
-    _captureEditorUiState();
-  }
-
-  void _captureEditorUiState({String? entryId}) {
-    if (_restoringEditorUiState) return;
-    final id = entryId ?? _loadedWorkspaceEntryId;
-    if (id.isEmpty || workspace.entryById(id)?.isFile != true) return;
-
-    final previous = workspace.editorStateForEntryId(id);
-    final selection = textController.selection;
-    final verticalScroller = editorScrollController.verticalScroller;
-    final horizontalScroller = editorScrollController.horizontalScroller;
-
-    workspace.updateEditorStateByEntryId(
-      id,
-      WorkspaceEditorState(
-        baseIndex: selection.baseIndex,
-        baseOffset: selection.baseOffset,
-        extentIndex: selection.extentIndex,
-        extentOffset: selection.extentOffset,
-        verticalOffset: verticalScroller.hasClients
-            ? verticalScroller.offset
-            : previous?.verticalOffset ?? 0,
-        horizontalOffset: horizontalScroller.hasClients
-            ? horizontalScroller.offset
-            : previous?.horizontalOffset ?? 0,
-      ),
-    );
-    _workspaceAutosave?.requestSave();
-  }
-
   void _handleWorkspaceChanged() {
     if (_syncingWorkspaceSelection) return;
 
     final path = workspace.activePath;
-    final activeEntry = workspace.activeEntry;
-    final workspaceContent = activeEntry?.content ?? '';
+    final workspaceContent = workspace.activeEntry?.content ?? '';
     final pathChanged = path != _loadedWorkspacePath;
     final contentChangedOutsideEditor = workspaceContent != textController.text;
 
@@ -497,93 +307,22 @@ Container(
       return;
     }
 
-    if (_skipCaptureOnNextWorkspaceSync) {
-      _skipCaptureOnNextWorkspaceSync = false;
-    } else {
-      _captureEditorUiState(entryId: _loadedWorkspaceEntryId);
-    }
-
     _syncingWorkspaceSelection = true;
-    _restoringEditorUiState = true;
     _loadedWorkspacePath = path;
-    _loadedWorkspaceEntryId = activeEntry?.id ?? '';
     textController.text = workspaceContent;
-    final restoredState =
-        workspace.editorStateForEntryId(_loadedWorkspaceEntryId);
-    _applySelection(restoredState);
     root = null;
     error = null;
     warnings = [];
-    _restoringEditorUiState = false;
     _syncingWorkspaceSelection = false;
 
-    _restoreScrollAfterLayout(restoredState);
     notifyListeners();
-  }
-
-  void _applySelection(WorkspaceEditorState? state) {
-    if (state == null || textController.text.isEmpty) {
-      textController.selection = const CodeLineSelection.zero();
-      return;
-    }
-
-    final lines = textController.text.split('\n');
-    if (lines.isEmpty) {
-      textController.selection = const CodeLineSelection.zero();
-      return;
-    }
-
-    int clampIndex(int value) => value.clamp(0, lines.length - 1).toInt();
-    int clampOffset(int index, int value) =>
-        value.clamp(0, lines[index].length).toInt();
-
-    final baseIndex = clampIndex(state.baseIndex);
-    final extentIndex = clampIndex(state.extentIndex);
-    textController.selection = CodeLineSelection(
-      baseIndex: baseIndex,
-      baseOffset: clampOffset(baseIndex, state.baseOffset),
-      extentIndex: extentIndex,
-      extentOffset: clampOffset(extentIndex, state.extentOffset),
-    );
-  }
-
-  void _restoreScrollAfterLayout(WorkspaceEditorState? state) {
-    final verticalTarget = state?.verticalOffset ?? 0;
-    final horizontalTarget = state?.horizontalOffset ?? 0;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_restoringEditorUiState) return;
-      _jumpToStoredOffset(
-        editorScrollController.verticalScroller,
-        verticalTarget,
-      );
-      _jumpToStoredOffset(
-        editorScrollController.horizontalScroller,
-        horizontalTarget,
-      );
-    });
-  }
-
-  void _jumpToStoredOffset(ScrollController controller, double target) {
-    if (!controller.hasClients) return;
-    final position = controller.position;
-    final safeTarget = target.clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    controller.jumpTo(safeTarget.toDouble());
   }
 
   @override
   void dispose() {
-    _captureEditorUiState();
     _debounce?.cancel();
-    textController.removeListener(_handleEditorValueChanged);
-    editorScrollController.verticalScroller.removeListener(_handleEditorScroll);
-    editorScrollController.horizontalScroller.removeListener(_handleEditorScroll);
     _workspaceAutosave?.dispose();
     workspace.removeListener(_handleWorkspaceChanged);
-    editorScrollController.dispose();
     workspace.dispose();
     textController.dispose();
 
